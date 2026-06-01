@@ -453,7 +453,6 @@ def _run_yolo_detection(
             continue
 
         current_unix_ts = _frame_ts_unix(frame_idx, fps, clip_start_time)
-        frame_ts_iso = emitter.emit_event.__func__  # not used directly, we use frame_number
 
         # Run YOLO inference
         results = model.track(frame, persist=True, classes=[PERSON_CLASS_ID], verbose=False)

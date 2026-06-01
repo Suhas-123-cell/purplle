@@ -118,8 +118,6 @@ def _extract_histogram_feature(frame: np.ndarray, bbox: Tuple[float, float, floa
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     """Return cosine similarity in [-1, 1]. Returns 0.0 on zero vectors."""
-    if a is None or b is None:
-        return 0.0
     na = np.linalg.norm(a)
     nb = np.linalg.norm(b)
     if na < 1e-9 or nb < 1e-9:
@@ -301,12 +299,6 @@ class VisitorTracker:
 
         self._evaluate_staff(session)
 
-    def record_zone_dwell(self, visitor_id: str, zone_id: str, dwell_ms: int) -> None:
-        """Accumulate dwell time in a zone."""
-        session = self._sessions.get(visitor_id)
-        if session:
-            session.zone_dwell_ms[zone_id] += dwell_ms
-
     def record_exit(self, visitor_id: str, timestamp: datetime, track_id: Optional[int] = None) -> None:
         """
         Mark the visitor as exited, move them to the graveyard for re-entry matching.
@@ -351,10 +343,6 @@ class VisitorTracker:
             session = self._sessions.get(vid)
             if session:
                 session.is_group_member = True
-
-    def all_sessions(self) -> List[Dict]:
-        """Return all sessions as a list of dicts (for reporting)."""
-        return [self.get_session(vid) for vid in self._sessions]  # type: ignore[misc]
 
     # ------------------------------------------------------------------
     # Internal helpers
