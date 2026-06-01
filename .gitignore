@@ -4,5 +4,7 @@ __pycache__/
 .env
 data/footage/
 *.mp4
+pipeline/yolov8*.pt
+.pytest_cache/
 .DS_Store
 venv/
