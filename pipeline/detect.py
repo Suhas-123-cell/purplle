@@ -317,17 +317,17 @@ class ZoneDwellTracker:
         s = self._state.get(visitor_id)
         return s["zone"] if s else None
 
-    def total_dwell_ms(self, visitor_id: str, zone_id: str) -> int:
+    def total_dwell_ms(self, visitor_id: str, zone_id: str, current_ts: float) -> int:
         s = self._state.get(visitor_id)
         if s and s["zone"] == zone_id:
-            return int((time.time() - s["entered_ts"]) * 1000)
+            return int((current_ts - s["entered_ts"]) * 1000)
         return 0
 
-    def remove(self, visitor_id: str) -> Optional[int]:
+    def remove(self, visitor_id: str, current_ts: float) -> Optional[int]:
         """Remove visitor, returning final dwell_ms if > 0."""
         state = self._state.pop(visitor_id, None)
         if state:
-            elapsed = time.time() - state["last_event_ts"]
+            elapsed = current_ts - state["last_event_ts"]
             if elapsed > 1:
                 return int(elapsed * 1000)
         return None
@@ -420,6 +420,7 @@ def _run_yolo_detection(
     frame_idx = 0
     events: List[Dict[str, Any]] = []
     active_zones: Dict[str, str] = {}  # visitor_id → current zone_id
+    entry_emitted: set[str] = set()
 
     logger.info("Processing %s with YOLO (sample_every=%d)…", video_path, sample_every)
 
@@ -471,6 +472,25 @@ def _run_yolo_detection(
                     )
                     group_vis_ids.append(vid)
                 tracker.mark_group_members(group_vis_ids)
+                for member_vid in group_vis_ids:
+                    if member_vid in entry_emitted:
+                        continue
+                    tracker.record_entry(
+                        member_vid,
+                        _frame_ts_dt(frame_idx, fps, clip_start_time),
+                    )
+                    ev = emitter.emit_event(
+                        EVENT_ENTRY, camera_id,
+                        visitor_id=member_vid,
+                        frame_number=frame_idx,
+                        zone_id="ENTRY_ZONE",
+                        confidence=confs[track_ids_in_frame.index(group[0])],
+                        group_size=len(group),
+                        group_members=group_vis_ids,
+                    )
+                    emitter.print_event(ev)
+                    events.append(ev)
+                    entry_emitted.add(member_vid)
                 ev = emitter.emit_event(
                     EVENT_GROUP_ENTRY, camera_id,
                     visitor_id=group_vis_ids[0],
@@ -497,6 +517,21 @@ def _run_yolo_detection(
             is_staff = session.get("is_staff", False)
             session_seq = session.get("session_seq", 0)
 
+            if is_entry_camera and not is_reentry and visitor_id not in entry_emitted:
+                tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                ev = emitter.emit_event(
+                    EVENT_ENTRY, camera_id, visitor_id,
+                    frame_number=frame_idx,
+                    zone_id="ENTRY_ZONE",
+                    is_staff=is_staff,
+                    confidence=conf,
+                    session_seq=session_seq,
+                    low_confidence=low_conf,
+                )
+                emitter.print_event(ev)
+                events.append(ev)
+                entry_emitted.add(visitor_id)
+
             # --- Re-entry event ---
             if is_reentry:
                 ev = emitter.emit_event(
@@ -513,18 +548,20 @@ def _run_yolo_detection(
             if line_detector:
                 crossing = line_detector.update(tid, bbox_norm)
                 if crossing == "ENTRY":
-                    tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
-                    ev = emitter.emit_event(
-                        EVENT_ENTRY, camera_id, visitor_id,
-                        frame_number=frame_idx,
-                        zone_id="ENTRY_ZONE",
-                        is_staff=is_staff,
-                        confidence=conf,
-                        session_seq=session_seq,
-                        low_confidence=low_conf,
-                    )
-                    emitter.print_event(ev)
-                    events.append(ev)
+                    if visitor_id not in entry_emitted:
+                        tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                        ev = emitter.emit_event(
+                            EVENT_ENTRY, camera_id, visitor_id,
+                            frame_number=frame_idx,
+                            zone_id="ENTRY_ZONE",
+                            is_staff=is_staff,
+                            confidence=conf,
+                            session_seq=session_seq,
+                            low_confidence=low_conf,
+                        )
+                        emitter.print_event(ev)
+                        events.append(ev)
+                        entry_emitted.add(visitor_id)
 
                 elif crossing == "EXIT":
                     tracker.record_exit(
@@ -552,7 +589,7 @@ def _run_yolo_detection(
             if prev_zone != zone_id:
                 # Zone exit
                 if prev_zone:
-                    final_dwell = dwell_tracker.remove(visitor_id)
+                    final_dwell = dwell_tracker.remove(visitor_id, current_unix_ts)
                     if final_dwell and final_dwell > 1000:
                         ev = emitter.emit_event(
                             EVENT_ZONE_DWELL, camera_id, visitor_id,
