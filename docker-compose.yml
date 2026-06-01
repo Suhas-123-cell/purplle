@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build:
@@ -10,13 +8,14 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
+      - ./app:/app
     environment:
       - DB_PATH=/data/store_intelligence.db
       - POS_CSV_PATH=/data/pos_transactions.csv
       - LOG_LEVEL=info
       - STORE_ID=STORE_BLR_002
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -30,6 +29,8 @@ services:
     container_name: purplle_dashboard
     ports:
       - "3000:80"
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
     depends_on:
       api:
         condition: service_healthy

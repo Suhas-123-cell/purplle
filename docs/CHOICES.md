@@ -31,3 +31,21 @@ For a single-store, single-writer analytics workload, SQLite with WAL (Write-Ahe
 **Performance is adequate.** The target workload is one store generating at most ~500 events per camera flush (every 5–30 seconds across 4 cameras) and one dashboard polling 4 read endpoints every 5 seconds. SQLite in WAL mode supports concurrent readers and a single writer without lock contention. Read latency for the aggregation queries (which operate on at most ~200 k rows for a full operating day) is under 5 ms on any reasonable hardware.
 
 **Trade-offs accepted.** SQLite does not support horizontal scaling. If this system were extended to 50 stores each with their own API instance, each instance would still use its own SQLite file (no shared state), which is actually fine for the per-store isolation model. If a centralised multi-store view were required, the `database.py` module is the only file that would need to change — the `DATABASE_URL` constant and the `Base` ORM definitions are the entire persistence boundary. Migrating to PostgreSQL or TimescaleDB at that point would be a one-day effort, not a re-architecture. The async SQLAlchemy layer (`aiosqlite` driver for SQLite, `asyncpg` for Postgres) abstracts the wire protocol, so all query code in `metrics.py`, `funnel.py`, etc. would port unchanged.
+
+---
+
+## 4. Replay-aware analytics over wall-clock-only analytics
+
+The challenge dataset is historical. The CCTV-derived events are anchored to `2026-04-10T10:00:00Z`, while reviewers run the API on a later machine date. If health, anomaly, and dashboard labels use only `datetime.utcnow()`, every camera appears stale and all "today" windows are empty. The API therefore uses the latest event timestamp for the store as the reference time for replay-sensitive calculations.
+
+This decision keeps `/health`, `/anomalies`, `/metrics`, `/funnel`, and `/heatmap` internally consistent during review. In a production deployment, the same code path still works for live streams because the latest event timestamp is close to wall-clock time. If a future central service needs both modes explicitly, this can be promoted to a `REPLAY_MODE` environment variable, but deriving from the event stream is simpler and less error-prone for this single-store submission.
+
+The visitor base also intentionally uses distinct non-staff visitors from presence events (`ENTRY`, `GROUP_ENTRY`, zone activity, and billing queue joins) rather than only `ENTRY`. This protects the business metrics from entry-line under-emission while keeping the detection pipeline itself accountable through the validation script, which still reports entry/group-entry coverage.
+
+---
+
+## 5. POS correlation for compressed replay clips
+
+The problem statement requires conversion by matching visitors in the billing zone during the five minutes before a POS transaction. That is the primary path. The provided replay events, however, can be compressed into a short camera interval while POS keeps full store-day wall-clock timestamps. When no five-minute overlap exists, the API falls back to same-day POS correlation capped by distinct billing-queue visitors.
+
+This is a conservative fallback: it never produces more converted visitors than observed billing visitors, so conversion remains session-based and bounded. The validation script prints both CCTV and POS ranges so this assumption is visible to reviewers instead of hidden in the code.

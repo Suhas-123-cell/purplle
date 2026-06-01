@@ -32,7 +32,7 @@
                          │  fetch() every 5 s
                          ▼
               dashboard/index.html
-              (vanilla JS, dark theme)
+              (vanilla JS operations console)
 ```
 
 ## Component descriptions
@@ -56,13 +56,13 @@ Events are accumulated into batches of up to 500 and POSTed to `/events/ingest`.
 
 ### Intelligence API (`app/`)
 
-The FastAPI backend is structured around five thin computation modules (`metrics.py`, `funnel.py`, `heatmap.py`, `anomalies.py`, `health.py`) each issued a read-only `AsyncSession`. All writes go through `ingestion.py`. SQLAlchemy async queries return in under 5 ms on the target dataset size (single store, one day = ~50 k events).
+The FastAPI backend is structured around five thin computation modules (`metrics.py`, `funnel.py`, `heatmap.py`, `anomalies.py`, `health.py`) each issued a read-only `AsyncSession`. Shared business semantics live in `analytics.py`, so visitor base, conversion correlation, replay reference time, and current queue state are not reimplemented differently per endpoint. All writes go through `ingestion.py`.
 
 Store ID normalisation (`normalize_store_id`) transparently maps the POS alias `ST1008` to the canonical `STORE_BLR_002`, so POS records and CCTV events join correctly even when the CSV uses a different identifier than the camera system.
 
 ### Dashboard (`dashboard/`)
 
-A single `index.html` with no build step and no runtime dependencies. It polls four API endpoints in parallel with `Promise.all` every 5 seconds, renders the results into DOM nodes, and exits gracefully with an error banner if the API is unreachable. The gauge for conversion rate is a pure SVG arc whose `stroke-dashoffset` is driven by JavaScript — no canvas, no chart library.
+A single `index.html` with no build step. It polls metrics, funnel, heatmap, anomalies, and health in parallel every 10 seconds, renders the results into DOM nodes, and exits gracefully with an error banner if the API is unreachable. The interface is an operations console: KPI strip, conversion funnel, zone dwell heatmap, anomaly detail, and camera feed status.
 
 ## Data flow (end-to-end)
 
@@ -78,7 +78,7 @@ CCTV frame
   → dashboard (display)
 ```
 
-POS data flows separately: the CSV is loaded into `pos_transactions` on API startup. The `compute_store_metrics` function joins CCTV-derived billing-zone events against POS timestamps to compute conversion rate.
+POS data flows separately: the CSV is loaded into `pos_transactions` on API startup. The shared analytics layer joins CCTV-derived billing-zone events against POS timestamps to compute conversion rate. For compressed replay clips with no direct timestamp overlap, same-day POS orders are capped by observed billing-queue visitors.
 
 ## Edge case handling
 
@@ -90,7 +90,9 @@ POS data flows separately: the CSV is loaded into `pos_transactions` on API star
 
 **Occlusion.** ByteTrack's low-confidence buffer handles brief occlusion (under ~1 s). For longer occlusions the track is marked `lost` and held for up to 3 seconds before being terminated. If the person re-appears within 3 s, the track is re-linked and no EXIT/ENTRY pair is emitted. Confidence degrades gracefully: low-confidence events are emitted with their actual confidence value rather than being suppressed, so the API has full information to decide how to weight them.
 
-**Stale camera feed.** The `/health` endpoint computes `lag_seconds` per camera as `now - max(event.timestamp)` for events from that camera in the last hour. If `lag_seconds > 600` the camera is marked `is_stale=True` and the anomaly detector emits a `STALE_FEED` anomaly. This catches both network drops and storage failures.
+**Stale camera feed.** The `/health` endpoint computes `lag_seconds` per camera as `reference_now - max(event.timestamp)`, where `reference_now` is the latest event timestamp for the store. For live streams this is effectively wall-clock time; for historical replay data it prevents false stale-feed alarms caused by running April data on a later date.
+
+**Corrupted dwell guardrail.** Earlier event generation can produce impossible dwell values if real wall-clock time is mixed with frame timestamps. The pipeline now computes final dwell from frame time, and API aggregations ignore dwell rows above one hour so legacy bad rows cannot dominate heatmap or metrics output.
 
 ## AI-Assisted Decisions
 
