@@ -1,11 +1,6 @@
 """
 Tests for retail anomaly detection.
 
-# PROMPT: Write tests for retail anomaly detection: queue spikes, conversion drops,
-#         dead zones.
-# Test: severity thresholds, suggested_action presence, anomaly trigger conditions.
-# CHANGES MADE: Added test for STALE_FEED anomaly when no events received for >10 minutes.
-
 Anomaly detection sits behind GET /stores/{id}/anomalies.  These tests:
   - Validate that each anomaly type is correctly detected under its trigger condition
   - Assert that every anomaly object carries `severity` and `suggested_action`

@@ -1,12 +1,6 @@
 """
 Tests for store metrics computation via the FastAPI endpoints.
 
-# PROMPT: Write tests for store metrics computation covering conversion rate, funnel,
-#         and heatmap.
-# Test: unique visitor counting, session-based conversion, zero-purchase stores,
-#       re-entry deduplication.
-# CHANGES MADE: Added parametrize for multiple store scenarios including all-staff clips.
-
 All tests run against the in-process ASGI app backed by an in-memory SQLite database.
 Each test function is isolated: fixtures create fresh event sets and the async_client
 fixture resets the database state via app lifespan or table truncation.
@@ -18,7 +12,6 @@ from datetime import datetime, timedelta
 from typing import List
 
 import pytest
-import pytest_asyncio
 
 from app.models import Event, EventMetadata, EventType
 
