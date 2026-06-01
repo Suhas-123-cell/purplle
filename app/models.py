@@ -31,7 +31,7 @@ class EventMetadata(BaseModel):
     reentry_match_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     staff_reason: Optional[str] = None
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 class Event(BaseModel):
@@ -39,12 +39,12 @@ class Event(BaseModel):
         default_factory=lambda: str(uuid.uuid4()),
         description="UUID v4 identifying this event uniquely",
     )
-    store_id: str = Field(min_length=1)
-    camera_id: str = Field(min_length=1)
-    visitor_id: str = Field(min_length=1)
+    store_id: str = Field(min_length=1, max_length=64, pattern=r'^[\w\-]+$')
+    camera_id: str = Field(min_length=1, max_length=64, pattern=r'^[\w\-]+$')
+    visitor_id: str = Field(min_length=1, max_length=64, pattern=r'^[\w\-]+$')
     event_type: EventType
     timestamp: datetime
-    zone_id: Optional[str] = None
+    zone_id: Optional[str] = Field(default=None, max_length=64, pattern=r'^[\w\-]+$')
     dwell_ms: int = Field(default=0, ge=0)
     is_staff: bool = False
     confidence: float = Field(ge=0.0, le=1.0)

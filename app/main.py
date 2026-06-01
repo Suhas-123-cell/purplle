@@ -20,7 +20,7 @@ try:
     from .funnel import compute_funnel
     from .health import compute_health
     from .heatmap import compute_heatmap
-    from .ingestion import STORE_ID_ALIASES, ingest_events, load_pos_from_csv, normalize_store_id
+    from .ingestion import CANONICAL_STORE_ID, ingest_events, load_pos_from_csv, normalize_store_id
     from .metrics import compute_store_metrics
     from .models import (
         AnomalyData,
@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover - used when uvicorn imports main.py dire
     from funnel import compute_funnel
     from health import compute_health
     from heatmap import compute_heatmap
-    from ingestion import STORE_ID_ALIASES, ingest_events, load_pos_from_csv, normalize_store_id
+    from ingestion import CANONICAL_STORE_ID, ingest_events, load_pos_from_csv, normalize_store_id
     from metrics import compute_store_metrics
     from models import (
         AnomalyData,
@@ -78,12 +78,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -112,8 +113,14 @@ async def structured_logging_middleware(request: Request, call_next) -> Response
     return response
 
 
+_ALLOWED_STORES = {CANONICAL_STORE_ID}
+
 def _validate_store(store_id: str) -> str:
+    if len(store_id) > 64:
+        raise HTTPException(status_code=400, detail="Invalid store_id")
     normalized = normalize_store_id(store_id)
+    if normalized not in _ALLOWED_STORES:
+        raise HTTPException(status_code=404, detail="Store not found")
     return normalized
 
 
@@ -248,7 +255,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
         status_code=422,
         content=ErrorResponse(
             error="validation_error",
-            detail=str(exc),
+            detail=f"{exc.error_count()} validation error(s). Check request schema.",
             trace_id=trace_id,
         ).model_dump(mode="json"),
     )
