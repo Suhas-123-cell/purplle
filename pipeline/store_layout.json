@@ -1,0 +1,22 @@
+{
+  "store_id": "STORE_BLR_002",
+  "store_name": "Purplle Brigade Road",
+  "location": "Brigade Road, Bangalore",
+  "alt_id": "ST1008",
+  "zones": [
+    {"id": "ENTRY_ZONE", "name": "Entry Zone", "camera": "CAM_ENTRY_01", "type": "entry"},
+    {"id": "SKINCARE",   "name": "Skincare Zone", "camera": "CAM_FLOOR_01", "type": "product"},
+    {"id": "MAKEUP",     "name": "Makeup Zone", "camera": "CAM_FLOOR_01", "type": "product"},
+    {"id": "HAIRCARE",   "name": "Haircare Zone", "camera": "CAM_FLOOR_01", "type": "product"},
+    {"id": "FRAGRANCE",  "name": "Fragrance Zone", "camera": "CAM_FLOOR_02", "type": "product"},
+    {"id": "BILLING",    "name": "Billing Zone", "camera": "CAM_BILLING_01", "type": "billing"}
+  ],
+  "camera_mapping": {
+    "CAM 1": "CAM_ENTRY_01",
+    "CAM 2": "CAM_FLOOR_01",
+    "CAM 3": "CAM_BILLING_01",
+    "CAM 4": "CAM_FLOOR_02",
+    "CAM 5": "CAM_ENTRY_02"
+  },
+  "open_hours": {"open": "10:00", "close": "22:00"}
+}
