@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Purplle Store Intelligence — Brigade Road</title>
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3e;
+      --accent:    #8b5cf6;
+      --accent2:   #06b6d4;
+      --success:   #10b981;
+      --warn:      #f59e0b;
+      --danger:    #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --font:      'Inter', system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .header-left { display: flex; align-items: center; gap: 14px; }
+
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 18px; color: #fff;
+    }
+
+    h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+    .store-tag {
+      font-size: 11px; color: var(--muted);
+      background: var(--border); border-radius: 4px;
+      padding: 2px 7px; margin-left: 6px;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 16px; }
+
+    #live-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      animation: pulse 2s infinite;
+    }
+    #live-dot.stale { background: var(--warn); animation: none; }
+    #live-dot.error { background: var(--danger); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    #last-updated { font-size: 12px; color: var(--muted); }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* ── KPI Row ─────────────────────────────────────────────── */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.2s;
+    }
+    .kpi-card:hover { border-color: var(--accent); }
+
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .kpi-value {
+      font-size: 40px;
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      line-height: 1;
+    }
+
+    .kpi-sub { font-size: 12px; color: var(--muted); }
+
+    .kpi-value.accent  { color: var(--accent); }
+    .kpi-value.cyan    { color: var(--accent2); }
+    .kpi-value.green   { color: var(--success); }
+    .kpi-value.amber   { color: var(--warn); }
+
+    /* ── Gauge ─────────────────────────────────────────────── */
+    .gauge-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 4px;
+    }
+
+    .gauge-svg { flex-shrink: 0; }
+
+    .gauge-arc-bg {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 6;
+      stroke-linecap: round;
+    }
+    .gauge-arc-fill {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 6;
+      stroke-linecap: round;
+      stroke-dasharray: 157; /* circumference of r=25 half-circle */
+      stroke-dashoffset: 157;
+      transition: stroke-dashoffset 0.7s ease;
+    }
+
+    .gauge-center-text {
+      font-size: 13px;
+      font-weight: 700;
+      fill: var(--text);
+      text-anchor: middle;
+    }
+
+    /* ── Queue depth bar ─────────────────────────────────────── */
+    .queue-bar-wrap { margin-top: 8px; }
+    .queue-bar-track {
+      height: 8px; border-radius: 4px;
+      background: var(--border);
+      overflow: hidden;
+    }
+    .queue-bar-fill {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(90deg, var(--success), var(--warn));
+      transition: width 0.6s ease, background 0.4s;
+      width: 0%;
+    }
+    .queue-bar-fill.critical {
+      background: linear-gradient(90deg, var(--warn), var(--danger));
+    }
+
+    /* ── Bottom row ─────────────────────────────────────────── */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 16px;
+    }
+
+    /* ── Zone dwell bars ─────────────────────────────────────── */
+    .zone-bar-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .zone-row { display: flex; align-items: center; gap: 12px; }
+
+    .zone-name {
+      font-size: 12px; color: var(--muted);
+      width: 80px; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .zone-track {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: var(--border); overflow: hidden;
+    }
+    .zone-fill {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width 0.7s ease;
+      width: 0%;
+    }
+
+    .zone-val {
+      font-size: 12px; color: var(--text);
+      width: 46px; text-align: right; flex-shrink: 0;
+    }
+
+    /* ── Anomaly badges ─────────────────────────────────────── */
+    .anomaly-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .anomaly-none {
+      font-size: 13px;
+      color: var(--success);
+      padding: 8px 0;
+    }
+
+    .anomaly-badge {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border-left: 3px solid var(--danger);
+      background: rgba(239,68,68,0.08);
+    }
+    .anomaly-badge.WARN {
+      border-left-color: var(--warn);
+      background: rgba(245,158,11,0.08);
+    }
+    .anomaly-badge.INFO {
+      border-left-color: var(--accent2);
+      background: rgba(6,182,212,0.08);
+    }
+
+    .anomaly-type {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.05em; color: var(--danger);
+    }
+    .WARN  .anomaly-type { color: var(--warn); }
+    .INFO  .anomaly-type { color: var(--accent2); }
+
+    .anomaly-body { display: flex; flex-direction: column; gap: 3px; }
+    .anomaly-desc { font-size: 12px; color: var(--text); line-height: 1.4; }
+    .anomaly-action { font-size: 11px; color: var(--muted); font-style: italic; }
+
+    /* ── Error banner ─────────────────────────────────────────── */
+    #error-banner {
+      display: none;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid var(--danger);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--danger);
+    }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+      .bottom-row { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .kpi-row { grid-template-columns: 1fr; }
+      header { padding: 14px 16px; }
+      main { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">P</div>
+    <div>
+      <h1>Store Intelligence <span class="store-tag">STORE_BLR_002</span></h1>
+    </div>
+  </div>
+  <div class="header-right">
+    <div id="live-dot" title="Feed status"></div>
+    <span id="last-updated">Connecting…</span>
+  </div>
+</header>
+
+<main>
+
+  <div id="error-banner"></div>
+
+  <!-- KPI row -->
+  <div class="kpi-row">
+
+    <!-- Unique Visitors -->
+    <div class="kpi-card">
+      <div class="kpi-label">Unique Visitors Today</div>
+      <div class="kpi-value accent" id="kpi-visitors">—</div>
+      <div class="kpi-sub" id="kpi-visitors-sub">loading…</div>
+    </div>
+
+    <!-- Conversion Rate gauge -->
+    <div class="kpi-card">
+      <div class="kpi-label">Conversion Rate</div>
+      <div class="gauge-wrap">
+        <svg class="gauge-svg" width="60" height="36" viewBox="0 0 60 36">
+          <path class="gauge-arc-bg"
+            d="M 5 35 A 25 25 0 0 1 55 35" />
+          <path class="gauge-arc-fill" id="gauge-arc"
+            d="M 5 35 A 25 25 0 0 1 55 35" />
+          <text class="gauge-center-text" id="gauge-text" x="30" y="34">0%</text>
+        </svg>
+        <div>
+          <div class="kpi-value cyan" id="kpi-conversion">—</div>
+          <div class="kpi-sub">of visitors purchased</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Queue depth -->
+    <div class="kpi-card">
+      <div class="kpi-label">Billing Queue Depth</div>
+      <div class="kpi-value amber" id="kpi-queue">—</div>
+      <div class="queue-bar-wrap">
+        <div class="queue-bar-track">
+          <div class="queue-bar-fill" id="queue-bar"></div>
+        </div>
+      </div>
+      <div class="kpi-sub" id="kpi-abandonment">abandonment: —</div>
+    </div>
+
+    <!-- Active anomalies -->
+    <div class="kpi-card">
+      <div class="kpi-label">Active Anomalies</div>
+      <div class="kpi-value" id="kpi-anomaly-count" style="color:var(--success)">—</div>
+      <div class="kpi-sub" id="kpi-anomaly-sub">loading…</div>
+    </div>
+
+  </div>
+
+  <!-- Bottom row -->
+  <div class="bottom-row">
+
+    <!-- Zone dwell chart -->
+    <div class="panel">
+      <div class="panel-title">Avg Dwell Time by Zone</div>
+      <div class="zone-bar-list" id="zone-bars">
+        <div style="font-size:13px;color:var(--muted)">Loading zones…</div>
+      </div>
+    </div>
+
+    <!-- Anomaly detail -->
+    <div class="panel">
+      <div class="panel-title">Anomaly Detail</div>
+      <div class="anomaly-list" id="anomaly-list">
+        <div style="font-size:13px;color:var(--muted)">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+  /* ─── Config ────────────────────────────────────────────── */
+  const API_BASE = window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : '/api';
+
+  const STORE_ID    = 'STORE_BLR_002';
+  const REFRESH_MS  = 5000;
+  const QUEUE_MAX   = 15;  // treat 15 as 100% of the queue bar
+
+  /* ─── DOM refs ───────────────────────────────────────────── */
+  const $visitors       = document.getElementById('kpi-visitors');
+  const $visitorsSub    = document.getElementById('kpi-visitors-sub');
+  const $conversion     = document.getElementById('kpi-conversion');
+  const $gaugeArc       = document.getElementById('gauge-arc');
+  const $gaugeText      = document.getElementById('gauge-text');
+  const $queue          = document.getElementById('kpi-queue');
+  const $queueBar       = document.getElementById('queue-bar');
+  const $abandonment    = document.getElementById('kpi-abandonment');
+  const $anomalyCount   = document.getElementById('kpi-anomaly-count');
+  const $anomalySub     = document.getElementById('kpi-anomaly-sub');
+  const $zoneBars       = document.getElementById('zone-bars');
+  const $anomalyList    = document.getElementById('anomaly-list');
+  const $lastUpdated    = document.getElementById('last-updated');
+  const $liveDot        = document.getElementById('live-dot');
+  const $errorBanner    = document.getElementById('error-banner');
+
+  /* ─── Gauge helper ───────────────────────────────────────── */
+  // The arc path spans 0..157 dash-offset (r=25 semi-circle)
+  function setGauge(fraction) {
+    const f = Math.max(0, Math.min(1, fraction));
+    const offset = 157 * (1 - f);
+    $gaugeArc.style.strokeDashoffset = offset.toFixed(1);
+    $gaugeText.textContent = (f * 100).toFixed(1) + '%';
+  }
+
+  /* ─── Format helpers ─────────────────────────────────────── */
+  function fmtMs(ms) {
+    if (ms == null || ms === 0) return '0s';
+    if (ms < 60000) return (ms / 1000).toFixed(0) + 's';
+    return (ms / 60000).toFixed(1) + 'm';
+  }
+
+  function fmtPct(f) {
+    return (f * 100).toFixed(1) + '%';
+  }
+
+  function nowStr() {
+    return new Date().toLocaleTimeString('en-IN', { hour12: false });
+  }
+
+  /* ─── Error/status helpers ───────────────────────────────── */
+  function showError(msg) {
+    $errorBanner.style.display = 'block';
+    $errorBanner.textContent   = '⚠ ' + msg;
+    $liveDot.className = 'error';
+  }
+
+  function clearError() {
+    $errorBanner.style.display = 'none';
+    $liveDot.className = '';
+  }
+
+  /* ─── Render functions ───────────────────────────────────── */
+  function renderMetrics(data) {
+    $visitors.textContent    = data.unique_visitors ?? '0';
+    $visitorsSub.textContent = 'as of ' + nowStr();
+
+    const rate = data.conversion_rate ?? 0;
+    $conversion.textContent  = fmtPct(rate);
+    setGauge(rate);
+
+    const depth = data.queue_depth ?? 0;
+    $queue.textContent = depth;
+    const pct = Math.min(100, (depth / QUEUE_MAX) * 100).toFixed(0) + '%';
+    $queueBar.style.width = pct;
+    $queueBar.classList.toggle('critical', depth >= 8);
+
+    const abRate = data.abandonment_rate ?? 0;
+    $abandonment.textContent = 'abandonment: ' + fmtPct(abRate);
+  }
+
+  function renderZones(cells) {
+    if (!cells || cells.length === 0) {
+      $zoneBars.innerHTML = '<div style="font-size:13px;color:var(--muted)">No zone data yet.</div>';
+      return;
+    }
+
+    // Normalise against the max dwell
+    const maxDwell = Math.max(...cells.map(c => c.avg_dwell_ms || 0), 1);
+
+    $zoneBars.innerHTML = cells
+      .sort((a, b) => (b.avg_dwell_ms || 0) - (a.avg_dwell_ms || 0))
+      .map(cell => {
+        const pct = ((cell.avg_dwell_ms || 0) / maxDwell * 100).toFixed(1);
+        const lowConf = !cell.data_confidence
+          ? ' <span style="color:var(--muted);font-size:10px" title="Low sample count">~</span>'
+          : '';
+        return `
+          <div class="zone-row">
+            <div class="zone-name" title="${cell.zone_id}">${cell.zone_id.replace(/_/g,' ')}</div>
+            <div class="zone-track">
+              <div class="zone-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="zone-val">${fmtMs(cell.avg_dwell_ms)}${lowConf}</div>
+          </div>`;
+      })
+      .join('');
+  }
+
+  function renderAnomalies(anomalies) {
+    const critical = anomalies.filter(a => a.severity === 'CRITICAL').length;
+    const warn     = anomalies.filter(a => a.severity === 'WARN').length;
+    const total    = anomalies.length;
+
+    $anomalyCount.textContent = total;
+    $anomalyCount.style.color = total === 0
+      ? 'var(--success)'
+      : critical > 0 ? 'var(--danger)' : 'var(--warn)';
+
+    if (total === 0) {
+      $anomalySub.textContent  = 'All systems normal';
+      $anomalyList.innerHTML   = '<div class="anomaly-none">No active anomalies.</div>';
+      return;
+    }
+
+    $anomalySub.textContent = `${critical} critical · ${warn} warn`;
+
+    $anomalyList.innerHTML = anomalies
+      .sort((a, b) => {
+        const order = { CRITICAL: 0, WARN: 1, INFO: 2 };
+        return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+      })
+      .map(a => `
+        <div class="anomaly-badge ${a.severity}">
+          <div class="anomaly-body">
+            <div class="anomaly-type">${a.anomaly_type.replace(/_/g,' ')}</div>
+            <div class="anomaly-desc">${a.description}</div>
+            <div class="anomaly-action">${a.suggested_action}</div>
+          </div>
+        </div>`)
+      .join('');
+  }
+
+  /* ─── Fetch orchestrator ─────────────────────────────────── */
+  async function fetchJSON(url) {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} — ${url}`);
+    return resp.json();
+  }
+
+  async function refresh() {
+    try {
+      clearError();
+
+      const [metrics, heatmap, anomalies] = await Promise.all([
+        fetchJSON(`${API_BASE}/stores/${STORE_ID}/metrics`),
+        fetchJSON(`${API_BASE}/stores/${STORE_ID}/heatmap`),
+        fetchJSON(`${API_BASE}/stores/${STORE_ID}/anomalies`),
+      ]);
+
+      renderMetrics(metrics);
+      renderZones(heatmap.cells || []);
+      renderAnomalies(anomalies.anomalies || []);
+
+      $lastUpdated.textContent = 'Updated ' + nowStr();
+      $liveDot.className = '';  // green pulse
+
+    } catch (err) {
+      showError(err.message || 'Failed to reach API');
+      $lastUpdated.textContent = 'Last attempt ' + nowStr();
+    }
+  }
+
+  /* ─── Boot ───────────────────────────────────────────────── */
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+</script>
+
+</body>
+</html>
