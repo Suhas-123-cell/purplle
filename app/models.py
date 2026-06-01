@@ -24,6 +24,12 @@ class EventMetadata(BaseModel):
     queue_depth: Optional[int] = Field(default=None, ge=0)
     sku_zone: Optional[str] = None
     session_seq: Optional[int] = Field(default=None, ge=0)
+    review_required: bool = False
+    review_flags: List[str] = Field(default_factory=list)
+    confidence_bucket: Optional[str] = None
+    confidence_reason: Optional[str] = None
+    reentry_match_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    staff_reason: Optional[str] = None
 
     model_config = {"extra": "allow"}
 

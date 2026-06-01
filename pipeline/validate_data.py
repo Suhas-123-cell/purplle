@@ -198,8 +198,47 @@ def check_queue_depth_sanity() -> bool:
         return False
 
 
+def check_review_metadata() -> bool:
+    """Check 6: low-confidence JSONL events carry explicit review metadata."""
+    pattern = os.path.join(EVENTS_DIR, "*.jsonl")
+    files = glob.glob(pattern)
+    low_conf = 0
+    flagged = 0
+    missing: List[str] = []
+
+    for fpath in files:
+        with open(fpath, "r") as f:
+            for idx, line in enumerate(f, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                confidence = float(obj.get("confidence", 1.0))
+                metadata = obj.get("metadata") or {}
+                flags = metadata.get("review_flags") or []
+                if confidence < 0.40:
+                    low_conf += 1
+                    if metadata.get("review_required") and "LOW_DETECTION_CONFIDENCE" in flags:
+                        flagged += 1
+                    elif len(missing) < 3:
+                        missing.append(f"{os.path.basename(fpath)}:{idx}")
+
+    ok = low_conf == flagged
+    if ok:
+        _print(True, "REVIEW FLAGS",
+               f"{flagged}/{low_conf} low-confidence event(s) flagged for review")
+    else:
+        _print(False, "REVIEW FLAGS",
+               f"{flagged}/{low_conf} low-confidence event(s) flagged; missing {missing}")
+    return ok
+
+
 def check_pos_cctv_time_overlap() -> None:
-    """Check 6: Print CCTV and POS time ranges so the operator can verify overlap.
+    """Check 7: Print CCTV and POS time ranges so the operator can verify overlap.
     This is informational — no PASS/FAIL, just the ranges side-by-side."""
     pattern = os.path.join(EVENTS_DIR, "*.jsonl")
     files = glob.glob(pattern)
@@ -255,7 +294,7 @@ def check_pos_cctv_time_overlap() -> None:
 
 
 def check_camera_count() -> bool:
-    """Check 7: /health returns statuses for at least 3 cameras."""
+    """Check 8: /health returns statuses for at least 3 cameras."""
     MIN_CAMERAS = 3
     try:
         data = _get(f"/health?store_id={STORE_ID}")
@@ -292,6 +331,7 @@ def main() -> None:
     results.append(check_dwell_sanity())
     results.append(check_funnel_monotonic())
     results.append(check_queue_depth_sanity())
+    results.append(check_review_metadata())
     check_pos_cctv_time_overlap()   # informational, not counted
     results.append(check_camera_count())
 

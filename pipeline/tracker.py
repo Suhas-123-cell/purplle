@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 RE_ENTRY_WINDOW_SECONDS: int = 30 * 60          # 30 minutes
 STAFF_MIN_SESSION_HOURS: float = 4.0             # sessions longer than this → staff
 STAFF_ZONE_CROSSING_RATE: float = 0.5            # zone changes per minute above this → staff
+STAFF_FAST_ZONE_WINDOW_SECONDS: float = 90.0      # staff-like multi-zone sweep window
+STAFF_FAST_ZONE_DISTINCT_MIN: int = 3             # distinct zones within the sweep window
 FEATURE_MATCH_THRESHOLD: float = 0.75            # cosine similarity to re-id
+REENTRY_REVIEW_THRESHOLD: float = 0.85            # below this, keep but flag for review
 LOST_TRACK_TIMEOUT_SECONDS: float = 10.0         # seconds before a track is considered lost
 
 
@@ -56,9 +59,13 @@ class VisitorSession:
     zone_entry_times: Dict[str, datetime] = field(default_factory=dict)
     zone_dwell_ms: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
     is_staff: bool = False
+    staff_reason: Optional[str] = None
     is_group_member: bool = False
     session_seq: int = 0                            # increments on re-entry
-    _zone_change_times: List[float] = field(default_factory=list)
+    reentry_count: int = 0
+    last_reentry_match_confidence: Optional[float] = None
+    review_flags: List[str] = field(default_factory=list)
+    _zone_change_times: List[Tuple[str, float]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +214,15 @@ class VisitorTracker:
             record.last_bbox = bbox
             record.last_seen_ts = now
             record.bbox_history.append(bbox)
+            if frame is not None:
+                feature = _extract_histogram_feature(frame, bbox)
+                if record.feature is None:
+                    record.feature = feature
+                elif np.linalg.norm(feature) > 1e-9:
+                    blended = (record.feature * 0.8) + (feature * 0.2)
+                    norm = np.linalg.norm(blended)
+                    if norm > 1e-9:
+                        record.feature = blended / norm
             return record.visitor_id, False
 
         # --- New track_id: extract feature ---
@@ -253,8 +269,12 @@ class VisitorTracker:
             "zones_visited": list(session.zones_visited),
             "zone_dwell_ms": dict(session.zone_dwell_ms),
             "is_staff": session.is_staff,
+            "staff_reason": session.staff_reason,
             "is_group_member": session.is_group_member,
             "session_seq": session.session_seq,
+            "reentry_count": session.reentry_count,
+            "reentry_match_confidence": session.last_reentry_match_confidence,
+            "review_flags": list(session.review_flags),
         }
 
     def record_entry(self, visitor_id: str, timestamp: datetime) -> None:
@@ -277,7 +297,7 @@ class VisitorTracker:
 
         if zone_id not in session.zone_entry_times:
             session.zone_entry_times[zone_id] = timestamp
-            session._zone_change_times.append(timestamp.timestamp())
+            session._zone_change_times.append((zone_id, timestamp.timestamp()))
 
         self._evaluate_staff(session)
 
@@ -349,8 +369,9 @@ class VisitorTracker:
         """
         best_sim = -1.0
         best_vid = ""
+        best_idx: Optional[int] = None
 
-        for visitor_id, ex_feature, exit_ts in self._exited:
+        for idx, (visitor_id, ex_feature, exit_ts) in enumerate(self._exited):
             if now - exit_ts > self.re_entry_window:
                 continue
             if feature is None or ex_feature is None:
@@ -359,13 +380,20 @@ class VisitorTracker:
             if sim > best_sim:
                 best_sim = sim
                 best_vid = visitor_id
+                best_idx = idx
 
         if best_sim >= self.feature_match_threshold and best_vid:
+            if best_idx is not None:
+                self._exited.pop(best_idx)
             # Resume existing session with incremented seq
             session = self._sessions.get(best_vid)
             if session:
                 session.session_seq += 1
+                session.reentry_count += 1
+                session.last_reentry_match_confidence = round(best_sim, 4)
                 session.exit_time = None  # re-opened
+                if best_sim < REENTRY_REVIEW_THRESHOLD:
+                    self._add_review_flag(session, "AMBIGUOUS_REENTRY_MATCH")
             return best_vid, True
 
         return "", False
@@ -391,17 +419,36 @@ class VisitorTracker:
                 session.exit_time - session.entry_time
             ).total_seconds() / 3600.0
             if duration_hours >= STAFF_MIN_SESSION_HOURS:
-                session.is_staff = True
+                self._mark_staff(session, "LONG_SESSION")
                 return
 
         # Zone crossing rate check
         times = session._zone_change_times
         if len(times) >= 4:
-            window = times[-1] - times[0]
+            window = times[-1][1] - times[0][1]
             if window > 0:
                 rate = (len(times) - 1) / (window / 60.0)  # changes per minute
                 if rate > STAFF_ZONE_CROSSING_RATE:
-                    session.is_staff = True
+                    self._mark_staff(session, "HIGH_ZONE_CROSSING_RATE")
+
+        # Staff often sweep across multiple departments quickly; customers usually dwell.
+        if len(times) >= STAFF_FAST_ZONE_DISTINCT_MIN:
+            latest_ts = times[-1][1]
+            recent = [
+                zone for zone, ts in times
+                if latest_ts - ts <= STAFF_FAST_ZONE_WINDOW_SECONDS
+            ]
+            if len(set(recent)) >= STAFF_FAST_ZONE_DISTINCT_MIN:
+                self._mark_staff(session, "FAST_MULTI_ZONE_SWEEP")
+
+    def _mark_staff(self, session: VisitorSession, reason: str) -> None:
+        session.is_staff = True
+        session.staff_reason = session.staff_reason or reason
+        self._add_review_flag(session, f"STAFF_{reason}")
+
+    def _add_review_flag(self, session: VisitorSession, flag: str) -> None:
+        if flag not in session.review_flags:
+            session.review_flags.append(flag)
 
     def _prune_exited_pool(self, now: float) -> None:
         """Remove entries from the exited pool that are outside the re-entry window."""

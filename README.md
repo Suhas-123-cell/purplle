@@ -70,9 +70,10 @@ Use store id `STORE_BLR_002` or the alias `ST1008` — both are accepted.
 ## How the pipeline feeds the API
 
 1. `detect.py` reads each video frame (live RTSP or recorded `.mp4`) and runs **YOLOv8n** to detect `person` bounding boxes.
-2. `tracker.py` wraps **ByteTrack** to maintain stable `visitor_id` strings across frames.
-3. `emit.py` contains `VisitorTracker`, which maps spatial zones from `store_layout.json` onto pixel coordinates. When a tracked person crosses a zone boundary it emits the appropriate `EventType` (ENTRY, ZONE_ENTER, ZONE_DWELL, BILLING_QUEUE_JOIN, EXIT, REENTRY).
+2. `tracker.py` wraps **ByteTrack** to maintain stable `visitor_id` strings across frames, including re-entry matching and staff-like movement heuristics.
+3. `detect.py` maps spatial zones from `store_layout.json` onto pixel coordinates. When a tracked person crosses a zone boundary it emits the appropriate `EventType` (ENTRY, ZONE_ENTER, ZONE_DWELL, BILLING_QUEUE_JOIN, EXIT, REENTRY).
 4. Events are batched (≤ 500) and POSTed to `/events/ingest`. The endpoint is idempotent — re-sending the same `event_id` increments the `duplicate` counter without writing a second row.
+5. Every event keeps its raw `confidence` and includes review metadata for low-confidence detections, ambiguous re-entry matches, and staff heuristics.
 
 ## Replay and validation mode
 
@@ -83,6 +84,7 @@ The challenge clips are historical and compressed into a short camera window, wh
 - Visitor counts use distinct non-staff visitor IDs from presence events, not only `ENTRY`, so under-emitted entry-line crossings do not collapse the funnel.
 - Dwell calculations ignore impossible values above one hour, protecting the dashboard from corrupted legacy rows generated before the frame-time dwell fix.
 - Conversion first applies the required 5-minute billing-zone-to-POS window. If replay timestamps do not overlap POS wall-clock time, it falls back to same-day order correlation capped by observed billing-queue visitors.
+- Low-confidence detections are retained but marked with `review_required` and `LOW_DETECTION_CONFIDENCE`, so the replay remains auditable instead of silently dropping uncertain people.
 
 Current validation target after loading the included sample events:
 

@@ -83,6 +83,25 @@ GROUP_IOU_THRESHOLD = 0.05         # overlapping or very-close boxes → group
 MIN_DETECTION_CONF = 0.25          # minimum box confidence to consider
 
 
+def _review_metadata(
+    session: Dict[str, Any],
+    low_confidence: bool = False,
+    ambiguous_reentry: bool = False,
+) -> Dict[str, Any]:
+    """Build optional audit metadata for downstream human review workflows."""
+    metadata: Dict[str, Any] = {
+        "low_confidence": low_confidence,
+        "ambiguous_reentry": ambiguous_reentry,
+    }
+    if session.get("review_flags"):
+        metadata["review_flags"] = session["review_flags"]
+    if session.get("reentry_match_confidence") is not None:
+        metadata["reentry_match_confidence"] = session["reentry_match_confidence"]
+    if session.get("staff_reason"):
+        metadata["staff_reason"] = session["staff_reason"]
+    return metadata
+
+
 # ---------------------------------------------------------------------------
 # Zone mapping helpers
 # ---------------------------------------------------------------------------
@@ -487,6 +506,7 @@ def _run_yolo_detection(
                         confidence=confs[track_ids_in_frame.index(group[0])],
                         group_size=len(group),
                         group_members=group_vis_ids,
+                        **_review_metadata(tracker.get_session(member_vid) or {}),
                     )
                     emitter.print_event(ev)
                     events.append(ev)
@@ -516,6 +536,10 @@ def _run_yolo_detection(
             session = tracker.get_session(visitor_id) or {}
             is_staff = session.get("is_staff", False)
             session_seq = session.get("session_seq", 0)
+            reentry_conf = session.get("reentry_match_confidence")
+            ambiguous_reentry = bool(
+                is_reentry and reentry_conf is not None and reentry_conf < 0.85
+            )
 
             if is_entry_camera and not is_reentry and visitor_id not in entry_emitted:
                 tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
@@ -526,7 +550,7 @@ def _run_yolo_detection(
                     is_staff=is_staff,
                     confidence=conf,
                     session_seq=session_seq,
-                    low_confidence=low_conf,
+                    **_review_metadata(session, low_confidence=low_conf),
                 )
                 emitter.print_event(ev)
                 events.append(ev)
@@ -540,6 +564,11 @@ def _run_yolo_detection(
                     is_staff=is_staff,
                     confidence=conf,
                     session_seq=session_seq,
+                    **_review_metadata(
+                        session,
+                        low_confidence=low_conf,
+                        ambiguous_reentry=ambiguous_reentry,
+                    ),
                 )
                 emitter.print_event(ev)
                 events.append(ev)
@@ -557,7 +586,7 @@ def _run_yolo_detection(
                             is_staff=is_staff,
                             confidence=conf,
                             session_seq=session_seq,
-                            low_confidence=low_conf,
+                            **_review_metadata(session, low_confidence=low_conf),
                         )
                         emitter.print_event(ev)
                         events.append(ev)
@@ -576,7 +605,7 @@ def _run_yolo_detection(
                         is_staff=is_staff,
                         confidence=conf,
                         session_seq=session_seq,
-                        low_confidence=low_conf,
+                        **_review_metadata(session, low_confidence=low_conf),
                     )
                     emitter.print_event(ev)
                     events.append(ev)
@@ -598,6 +627,7 @@ def _run_yolo_detection(
                             dwell_ms=final_dwell,
                             is_staff=is_staff,
                             confidence=conf,
+                            **_review_metadata(session, low_confidence=low_conf),
                         )
                         emitter.print_event(ev)
                         events.append(ev)
@@ -607,6 +637,7 @@ def _run_yolo_detection(
                         zone_id=prev_zone,
                         is_staff=is_staff,
                         confidence=conf,
+                        **_review_metadata(session, low_confidence=low_conf),
                     )
                     emitter.print_event(ev)
                     events.append(ev)
@@ -616,6 +647,9 @@ def _run_yolo_detection(
                 # Zone enter
                 active_zones[visitor_id] = zone_id
                 tracker.record_zone(visitor_id, zone_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                session = tracker.get_session(visitor_id) or session
+                is_staff = session.get("is_staff", False)
+                session_seq = session.get("session_seq", session_seq)
                 queue_depth = billing_tracker.queue_depth
 
                 if zone_id == billing_zone_id:
@@ -628,6 +662,7 @@ def _run_yolo_detection(
                         is_staff=is_staff,
                         confidence=conf,
                         session_seq=session_seq,
+                        **_review_metadata(session, low_confidence=low_conf),
                     )
                     emitter.print_event(ev)
                     events.append(ev)
@@ -640,7 +675,7 @@ def _run_yolo_detection(
                         is_staff=is_staff,
                         confidence=conf,
                         session_seq=session_seq,
-                        low_confidence=low_conf,
+                        **_review_metadata(session, low_confidence=low_conf),
                     )
                     emitter.print_event(ev)
                     events.append(ev)
@@ -656,6 +691,7 @@ def _run_yolo_detection(
                     is_staff=is_staff,
                     confidence=conf,
                     session_seq=session_seq,
+                    **_review_metadata(session, low_confidence=low_conf),
                 )
                 emitter.print_event(ev)
                 events.append(ev)
