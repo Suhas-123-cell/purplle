@@ -17,6 +17,7 @@ class EventType(str, Enum):
     BILLING_QUEUE_JOIN = "BILLING_QUEUE_JOIN"
     BILLING_QUEUE_ABANDON = "BILLING_QUEUE_ABANDON"
     REENTRY = "REENTRY"
+    GROUP_ENTRY = "GROUP_ENTRY"
 
 
 class EventMetadata(BaseModel):

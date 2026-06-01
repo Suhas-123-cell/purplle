@@ -136,6 +136,22 @@ class TestUniqueVisitorCount:
         data = resp.json()
         assert data["unique_visitors"] == 0
 
+    @pytest.mark.asyncio
+    async def test_unique_visitors_falls_back_to_zone_activity(self, async_client):
+        """Challenge replay data may miss ENTRY events; zone activity still counts a visitor."""
+        events = [
+            _ev(
+                "V_ZONE_ONLY",
+                EventType.ZONE_ENTER,
+                zone_id="SKINCARE",
+                camera_id="CAM_FLOOR_01",
+            )
+        ]
+        await _ingest(async_client, events)
+        resp = await async_client.get(f"/stores/{STORE_ID}/metrics")
+        assert resp.status_code == 200
+        assert resp.json()["unique_visitors"] == 1
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Conversion rate computation
@@ -307,6 +323,54 @@ class TestHeatmapEndpoint:
         resp = await async_client.get(f"/stores/{STORE_ID}/heatmap")
         assert resp.status_code == 200
         assert resp.json()["store_id"] == STORE_ID
+
+    @pytest.mark.asyncio
+    async def test_heatmap_ignores_impossible_dwell_values(self, async_client):
+        events = [
+            _ev(
+                "V_BAD_DWELL",
+                EventType.ZONE_ENTER,
+                zone_id="SKINCARE",
+                camera_id="CAM_FLOOR_01",
+            ),
+            _ev(
+                "V_BAD_DWELL",
+                EventType.ZONE_DWELL,
+                delta_minutes=1,
+                zone_id="SKINCARE",
+                camera_id="CAM_FLOOR_01",
+                dwell_ms=4_500_000_000,
+            ),
+        ]
+        await _ingest(async_client, events)
+        resp = await async_client.get(f"/stores/{STORE_ID}/heatmap")
+        assert resp.status_code == 200
+        skincare = next(c for c in resp.json()["cells"] if c["zone_id"] == "SKINCARE")
+        assert skincare["avg_dwell_ms"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_queue_depth_clears_on_billing_zone_exit(self, async_client):
+        events = [
+            _ev("V_QUEUE", EventType.ENTRY),
+            _ev(
+                "V_QUEUE",
+                EventType.BILLING_QUEUE_JOIN,
+                delta_minutes=5,
+                zone_id="BILLING",
+                camera_id="CAM_BILLING_01",
+            ),
+            _ev(
+                "V_QUEUE",
+                EventType.ZONE_EXIT,
+                delta_minutes=6,
+                zone_id="BILLING",
+                camera_id="CAM_BILLING_01",
+            ),
+        ]
+        await _ingest(async_client, events)
+        resp = await async_client.get(f"/stores/{STORE_ID}/metrics")
+        assert resp.status_code == 200
+        assert resp.json()["queue_depth"] == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────

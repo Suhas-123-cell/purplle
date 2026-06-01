@@ -3,60 +3,32 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import List
 
-from sqlalchemy import func, select, and_, distinct
+from sqlalchemy import and_, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database import EventRow, POSTransaction
-from .models import Anomaly, AnomalyData, AnomalyType, Severity
+try:
+    from .analytics import get_current_queue_visitors, get_purchase_visitors, get_reference_now
+    from .database import EventRow
+    from .models import Anomaly, AnomalyData, AnomalyType, Severity
+except ImportError:  # pragma: no cover - used when uvicorn imports main.py directly
+    from analytics import get_current_queue_visitors, get_purchase_visitors, get_reference_now
+    from database import EventRow
+    from models import Anomaly, AnomalyData, AnomalyType, Severity
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _today_range() -> tuple[datetime, datetime]:
-    now = _now()
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, now
-
-
 async def _check_billing_queue_spike(
     session: AsyncSession, store_id: str
 ) -> Anomaly | None:
-    # Current queue depth
-    subq = (
-        select(
-            EventRow.visitor_id,
-            func.max(EventRow.timestamp).label("last_ts"),
-        )
-        .where(
-            and_(
-                EventRow.store_id == store_id,
-                EventRow.event_type.in_(
-                    ["BILLING_QUEUE_JOIN", "BILLING_QUEUE_ABANDON", "EXIT"]
-                ),
-            )
-        )
-        .group_by(EventRow.visitor_id)
-        .subquery()
-    )
+    current_depth = len(await get_current_queue_visitors(session, store_id))
 
-    latest_events = await session.execute(
-        select(EventRow.visitor_id, EventRow.event_type).join(
-            subq,
-            and_(
-                EventRow.visitor_id == subq.c.visitor_id,
-                EventRow.timestamp == subq.c.last_ts,
-                EventRow.store_id == store_id,
-            ),
-        )
-    )
-    current_depth = sum(
-        1 for _, et in latest_events.fetchall() if et == "BILLING_QUEUE_JOIN"
-    )
-
-    # 7-day average queue depth — approximate via daily JOIN counts
-    now = _now()
+    # 7-day average queue depth — approximate via daily JOIN counts.
+    # Use data-anchored reference time so historical/replay data is evaluated
+    # relative to the data's own "now", not the system clock.
+    now = await get_reference_now(session, store_id)
     seven_days_ago = now - timedelta(days=7)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -111,40 +83,64 @@ async def _check_billing_queue_spike(
                 "threshold": round(threshold, 2),
             },
         )
+
+    # No historical baseline: emit a WARN when queue depth is notable so the
+    # system is useful on day-one / replay datasets with only one day of data.
+    if avg_hourly == 0 and current_depth >= 4:
+        return Anomaly(
+            anomaly_type=AnomalyType.BILLING_QUEUE_SPIKE,
+            severity=Severity.WARN,
+            description=(
+                f"Queue depth {current_depth} with no historical baseline — "
+                "monitoring recommended."
+            ),
+            suggested_action="Open additional billing counters or deploy staff to queue management.",
+            detected_at=now,
+            context={
+                "current_depth": current_depth,
+                "current_hour_joins": current_hour_joins,
+                "avg_hourly_7d": 0,
+                "threshold": None,
+            },
+        )
+
     return None
 
 
 async def _check_conversion_drop(
     session: AsyncSession, store_id: str
 ) -> Anomaly | None:
-    now = _now()
+    # Use data-anchored reference time so the "today" window aligns with the
+    # date of the actual data rather than the current system date (June 1 vs
+    # April 10).
+    now = await get_reference_now(session, store_id)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     seven_days_ago = now - timedelta(days=7)
 
     async def _day_conversion(day_start: datetime, day_end: datetime) -> float:
-        visitors = await session.scalar(
-            select(func.count(distinct(EventRow.visitor_id))).where(
+        visitor_rows = await session.execute(
+            select(distinct(EventRow.visitor_id)).where(
                 and_(
                     EventRow.store_id == store_id,
-                    EventRow.event_type == "ENTRY",
+                    EventRow.event_type.in_(
+                        ["ENTRY", "GROUP_ENTRY", "ZONE_ENTER", "ZONE_DWELL", "BILLING_QUEUE_JOIN"]
+                    ),
                     EventRow.is_staff.is_(False),
                     EventRow.timestamp >= day_start,
                     EventRow.timestamp <= day_end,
                 )
             )
-        ) or 0
-        if visitors == 0:
+        )
+        visitors = {row[0] for row in visitor_rows.fetchall()}
+        if len(visitors) == 0:
             return 0.0
-        purchases = await session.scalar(
-            select(func.count(func.distinct(POSTransaction.order_id))).where(
-                and_(
-                    POSTransaction.store_id == store_id,
-                    POSTransaction.transaction_ts >= day_start,
-                    POSTransaction.transaction_ts <= day_end,
-                )
-            )
-        ) or 0
-        return min(purchases / visitors, 1.0)
+        purchases = await get_purchase_visitors(
+            session,
+            store_id,
+            queue_visitors=visitors,
+            reference_now=day_end,
+        )
+        return min(len(purchases) / len(visitors), 1.0)
 
     today_conversion = await _day_conversion(today_start, now)
 
@@ -192,7 +188,10 @@ async def _check_conversion_drop(
 async def _check_dead_zones(
     session: AsyncSession, store_id: str
 ) -> List[Anomaly]:
-    now = _now()
+    # Use data-anchored reference time so the 24h active-zone window and the
+    # 30-minute dead-zone cutoff are computed relative to the data's own "now",
+    # not the system clock (which would find zero activity from April data).
+    now = await get_reference_now(session, store_id)
     cutoff = now - timedelta(minutes=30)
 
     # Find all zones active in the last 24h
@@ -244,7 +243,9 @@ async def _check_dead_zones(
 async def _check_stale_feeds(
     session: AsyncSession, store_id: str
 ) -> List[Anomaly]:
-    now = _now()
+    # Use the latest event timestamp as reference so historical/replay data
+    # is not treated as stale relative to the wall-clock system time.
+    now = await get_reference_now(session, store_id)
     cutoff = now - timedelta(minutes=10)
 
     camera_last_ts = await session.execute(
@@ -270,7 +271,7 @@ async def _check_stale_feeds(
                         f"Verify network connectivity and health of camera '{camera_id}'. "
                         "Check edge device logs."
                     ),
-                    detected_at=now,
+                    detected_at=_now(),
                     context={
                         "camera_id": camera_id,
                         "last_event_ts": last_ts.isoformat() if last_ts else None,
@@ -304,6 +305,6 @@ async def compute_anomalies(session: AsyncSession, store_id: str) -> AnomalyData
 
     return AnomalyData(
         store_id=store_id,
-        as_of=_now(),
+        as_of=await get_reference_now(session, store_id),
         anomalies=anomalies,
     )

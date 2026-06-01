@@ -11,8 +11,12 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database import AsyncSessionLocal, EventRow, POSTransaction, VisitorSession
-from .models import Event, EventType, IngestResponse
+try:
+    from .database import AsyncSessionLocal, EventRow, POSTransaction, VisitorSession
+    from .models import Event, EventType, IngestResponse
+except ImportError:  # pragma: no cover - used when uvicorn imports main.py directly
+    from database import AsyncSessionLocal, EventRow, POSTransaction, VisitorSession
+    from models import Event, EventType, IngestResponse
 
 logger = logging.getLogger(__name__)
 
@@ -44,22 +48,22 @@ async def load_pos_from_csv(csv_path: str) -> Tuple[int, int]:
     skipped = 0
 
     async with AsyncSessionLocal() as session:
+        existing_ids: set[str] = {
+            row[0]
+            for row in (await session.execute(select(POSTransaction.order_id))).all()
+        }
+
         with open(path, newline="", encoding="utf-8-sig") as fh:
             reader = csv.DictReader(fh)
             batch: List[POSTransaction] = []
+            seen_in_run: set[str] = set()
 
             for row in reader:
                 order_id = row.get("order_id", "").strip()
-                if not order_id:
+                if not order_id or order_id in existing_ids or order_id in seen_in_run:
                     skipped += 1
                     continue
-
-                existing = await session.scalar(
-                    select(POSTransaction).where(POSTransaction.order_id == order_id)
-                )
-                if existing:
-                    skipped += 1
-                    continue
+                seen_in_run.add(order_id)
 
                 ts = _parse_pos_timestamp(
                     row.get("order_date", ""), row.get("order_time", "")

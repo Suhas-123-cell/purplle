@@ -1,35 +1,37 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import List
 
-from sqlalchemy import func, select, and_, distinct
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database import EventRow, POSTransaction, VisitorSession
-from .models import StoreMetrics, ZoneDwellStat
-
-
-def _today_range() -> tuple[datetime, datetime]:
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, now
+try:
+    from .analytics import (
+        MAX_DWELL_MS,
+        get_billing_queue_visitors,
+        get_current_queue_visitors,
+        get_presence_visitors,
+        get_purchase_visitors,
+        get_reference_now,
+    )
+    from .database import EventRow
+    from .models import StoreMetrics, ZoneDwellStat
+except ImportError:  # pragma: no cover - used when uvicorn imports main.py directly
+    from analytics import (
+        MAX_DWELL_MS,
+        get_billing_queue_visitors,
+        get_current_queue_visitors,
+        get_presence_visitors,
+        get_purchase_visitors,
+        get_reference_now,
+    )
+    from database import EventRow
+    from models import StoreMetrics, ZoneDwellStat
 
 
 async def get_unique_visitors(session: AsyncSession, store_id: str) -> int:
-    start, end = _today_range()
-    result = await session.scalar(
-        select(func.count(distinct(EventRow.visitor_id))).where(
-            and_(
-                EventRow.store_id == store_id,
-                EventRow.event_type == "ENTRY",
-                EventRow.is_staff.is_(False),
-                EventRow.timestamp >= start,
-                EventRow.timestamp <= end,
-            )
-        )
-    )
-    return result or 0
+    return len(await get_presence_visitors(session, store_id))
 
 
 async def get_conversion_rate(
@@ -38,47 +40,19 @@ async def get_conversion_rate(
     if unique_visitors == 0:
         return 0.0
 
-    start, end = _today_range()
-
-    pos_rows = await session.execute(
-        select(POSTransaction.transaction_ts).where(
-            and_(
-                POSTransaction.store_id == store_id,
-                POSTransaction.transaction_ts >= start,
-                POSTransaction.transaction_ts <= end,
-            )
-        )
+    queue_visitors = await get_billing_queue_visitors(session, store_id)
+    converters = await get_purchase_visitors(
+        session,
+        store_id,
+        queue_visitors=queue_visitors,
+        reference_now=await get_reference_now(session, store_id),
     )
-    pos_timestamps = [row[0] for row in pos_rows.fetchall() if row[0] is not None]
-
-    if not pos_timestamps:
-        return 0.0
-
-    converters: set[str] = set()
-    for txn_ts in pos_timestamps:
-        window_start = txn_ts - timedelta(minutes=5)
-        visitors_before_purchase = await session.execute(
-            select(distinct(EventRow.visitor_id)).where(
-                and_(
-                    EventRow.store_id == store_id,
-                    EventRow.event_type == "BILLING_QUEUE_JOIN",
-                    EventRow.is_staff.is_(False),
-                    EventRow.timestamp >= window_start,
-                    EventRow.timestamp <= txn_ts,
-                )
-            )
-        )
-        for (vid,) in visitors_before_purchase.fetchall():
-            converters.add(vid)
-
     return min(len(converters) / unique_visitors, 1.0)
 
 
 async def get_avg_dwell_per_zone(
     session: AsyncSession, store_id: str
 ) -> List[ZoneDwellStat]:
-    start, end = _today_range()
-
     rows = await session.execute(
         select(
             EventRow.zone_id,
@@ -90,8 +64,7 @@ async def get_avg_dwell_per_zone(
                 EventRow.store_id == store_id,
                 EventRow.event_type == "ZONE_DWELL",
                 EventRow.zone_id.isnot(None),
-                EventRow.timestamp >= start,
-                EventRow.timestamp <= end,
+                EventRow.dwell_ms <= MAX_DWELL_MS,
             )
         )
         .group_by(EventRow.zone_id)
@@ -108,52 +81,15 @@ async def get_avg_dwell_per_zone(
 
 
 async def get_current_queue_depth(session: AsyncSession, store_id: str) -> int:
-    subq = (
-        select(
-            EventRow.visitor_id,
-            func.max(EventRow.timestamp).label("last_ts"),
-        )
-        .where(
-            and_(
-                EventRow.store_id == store_id,
-                EventRow.event_type.in_(
-                    ["BILLING_QUEUE_JOIN", "BILLING_QUEUE_ABANDON", "EXIT"]
-                ),
-            )
-        )
-        .group_by(EventRow.visitor_id)
-        .subquery()
-    )
-
-    latest_events = await session.execute(
-        select(EventRow.visitor_id, EventRow.event_type).join(
-            subq,
-            and_(
-                EventRow.visitor_id == subq.c.visitor_id,
-                EventRow.timestamp == subq.c.last_ts,
-                EventRow.store_id == store_id,
-            ),
-        )
-    )
-
-    depth = sum(
-        1
-        for _, et in latest_events.fetchall()
-        if et == "BILLING_QUEUE_JOIN"
-    )
-    return depth
+    return len(await get_current_queue_visitors(session, store_id))
 
 
 async def get_abandonment_rate(session: AsyncSession, store_id: str) -> float:
-    start, end = _today_range()
-
     joins = await session.scalar(
         select(func.count(EventRow.event_id)).where(
             and_(
                 EventRow.store_id == store_id,
                 EventRow.event_type == "BILLING_QUEUE_JOIN",
-                EventRow.timestamp >= start,
-                EventRow.timestamp <= end,
             )
         )
     )
@@ -165,8 +101,6 @@ async def get_abandonment_rate(session: AsyncSession, store_id: str) -> float:
             and_(
                 EventRow.store_id == store_id,
                 EventRow.event_type == "BILLING_QUEUE_ABANDON",
-                EventRow.timestamp >= start,
-                EventRow.timestamp <= end,
             )
         )
     )
@@ -183,7 +117,7 @@ async def compute_store_metrics(session: AsyncSession, store_id: str) -> StoreMe
 
     return StoreMetrics(
         store_id=store_id,
-        as_of=datetime.utcnow(),
+        as_of=await get_reference_now(session, store_id),
         unique_visitors=unique_visitors,
         conversion_rate=round(conversion_rate, 4),
         avg_dwell_per_zone=avg_dwell,

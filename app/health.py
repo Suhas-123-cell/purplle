@@ -7,8 +7,14 @@ from sqlalchemy import func, select, and_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .database import EventRow
-from .models import CameraStatus, HealthResponse
+try:
+    from .analytics import get_reference_now
+    from .database import EventRow
+    from .models import CameraStatus, HealthResponse
+except ImportError:  # pragma: no cover - used when uvicorn imports main.py directly
+    from analytics import get_reference_now
+    from database import EventRow
+    from models import CameraStatus, HealthResponse
 
 
 _STALE_THRESHOLD_SECONDS = 600  # 10 minutes
@@ -19,7 +25,9 @@ def _now() -> datetime:
 
 
 async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse:
-    now = _now()
+    # Use the latest event timestamp as the reference so that historical/replay
+    # data is not treated as stale relative to the wall-clock system time.
+    now = await get_reference_now(session, store_id)
 
     try:
         await session.execute(text("SELECT 1"))
@@ -76,5 +84,5 @@ async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse
         store_id=store_id,
         last_event_ts=last_event_ts_result,
         camera_statuses=camera_statuses,
-        checked_at=now,
+        checked_at=datetime.utcnow(),
     )
