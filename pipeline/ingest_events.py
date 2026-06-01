@@ -1,8 +1,11 @@
 import json
+import os
 import sys
 import requests
 
 BATCH_SIZE = 500
+API_URL = os.getenv("INGEST_API_URL", "http://localhost:8000")
+API_KEY = os.getenv("API_KEY", "")
 
 for path in sys.argv[1:]:
     with open(path) as fh:
@@ -16,9 +19,12 @@ for path in sys.argv[1:]:
     for i in range(0, total, BATCH_SIZE):
         batch = events[i: i + BATCH_SIZE]
         r = requests.post(
-            "http://localhost:8000/events/ingest",
+            f"{API_URL}/events/ingest",
             json={"events": batch},
+            headers={"X-API-Key": API_KEY} if API_KEY else {},
+            timeout=30,
         )
+        r.raise_for_status()
         body = r.json()
         accepted += body.get("accepted", 0)
         rejected += body.get("rejected", 0)
