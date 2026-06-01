@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,7 +82,6 @@ def frame_to_timestamp(
     start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
     offset_seconds = frame_number / fps if fps > 0 else 0.0
     # Use timedelta for sub-second precision
-    from datetime import timedelta
     ts = start_dt + timedelta(seconds=offset_seconds)
     return ts.isoformat()
 
@@ -263,16 +262,6 @@ class EventEmitter:
         )
         self._buffer.append(event)
         return event
-
-    def flush(self) -> List[Dict[str, Any]]:
-        """Return and clear the internal event buffer."""
-        events = list(self._buffer)
-        self._buffer.clear()
-        return events
-
-    def buffer_size(self) -> int:
-        """Return the current number of buffered (not yet emitted) events."""
-        return len(self._buffer)
 
     # ------------------------------------------------------------------
     # File output
