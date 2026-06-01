@@ -21,6 +21,7 @@ os.environ.setdefault("POS_CSV_PATH", "/dev/null")
 
 # lazy import so env vars land first
 from app.main import app  # noqa: E402  (app must exist by the time tests run)
+from app.database import Base, engine  # noqa: E402
 from app.models import Event, EventMetadata, EventType  # noqa: E402
 
 
@@ -70,7 +71,15 @@ def _ev(
 
 
 @pytest_asyncio.fixture()
-async def async_client():
+async def reset_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+@pytest_asyncio.fixture()
+async def async_client(reset_db):
     """Async HTTP client backed by the FastAPI app (in-process, no network)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:

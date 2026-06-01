@@ -2,16 +2,23 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 from sqlalchemy import String, Integer, Float, Boolean, Text, DateTime, BigInteger, Index
+from sqlalchemy.pool import StaticPool
 from datetime import datetime
 from typing import Optional
 
 DB_PATH = os.getenv("DB_PATH", "/data/store_intelligence.db")
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
+_engine_kwargs = {
+    "echo": False,
+    "connect_args": {"check_same_thread": False},
+}
+if DB_PATH == ":memory:":
+    _engine_kwargs["poolclass"] = StaticPool
+
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,
-    connect_args={"check_same_thread": False},
+    **_engine_kwargs,
 )
 
 AsyncSessionLocal = async_sessionmaker(

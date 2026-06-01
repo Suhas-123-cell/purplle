@@ -14,23 +14,42 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .anomalies import compute_anomalies
-from .database import get_session, init_db
-from .funnel import compute_funnel
-from .health import compute_health
-from .heatmap import compute_heatmap
-from .ingestion import STORE_ID_ALIASES, ingest_events, load_pos_from_csv, normalize_store_id
-from .metrics import compute_store_metrics
-from .models import (
-    AnomalyData,
-    ErrorResponse,
-    FunnelData,
-    HeatmapData,
-    HealthResponse,
-    IngestRequest,
-    IngestResponse,
-    StoreMetrics,
-)
+try:
+    from .anomalies import compute_anomalies
+    from .database import get_session, init_db
+    from .funnel import compute_funnel
+    from .health import compute_health
+    from .heatmap import compute_heatmap
+    from .ingestion import STORE_ID_ALIASES, ingest_events, load_pos_from_csv, normalize_store_id
+    from .metrics import compute_store_metrics
+    from .models import (
+        AnomalyData,
+        ErrorResponse,
+        FunnelData,
+        HeatmapData,
+        HealthResponse,
+        IngestRequest,
+        IngestResponse,
+        StoreMetrics,
+    )
+except ImportError:  # pragma: no cover - used when uvicorn imports main.py directly
+    from anomalies import compute_anomalies
+    from database import get_session, init_db
+    from funnel import compute_funnel
+    from health import compute_health
+    from heatmap import compute_heatmap
+    from ingestion import STORE_ID_ALIASES, ingest_events, load_pos_from_csv, normalize_store_id
+    from metrics import compute_store_metrics
+    from models import (
+        AnomalyData,
+        ErrorResponse,
+        FunnelData,
+        HeatmapData,
+        HealthResponse,
+        IngestRequest,
+        IngestResponse,
+        StoreMetrics,
+    )
 
 POS_CSV_PATH = os.getenv("POS_CSV_PATH", "/data/pos_transactions.csv")
 
