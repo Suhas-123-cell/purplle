@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from sqlalchemy import and_, distinct, func, select
@@ -27,7 +27,7 @@ async def get_reference_now(session: AsyncSession, store_id: str) -> datetime:
     ts = await session.scalar(
         select(func.max(EventRow.timestamp)).where(EventRow.store_id == store_id)
     )
-    return ts or datetime.utcnow()
+    return ts or datetime.now(timezone.utc)
 
 
 async def get_presence_visitors(session: AsyncSession, store_id: str) -> set[str]:

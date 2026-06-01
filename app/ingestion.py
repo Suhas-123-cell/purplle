@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -22,10 +22,11 @@ logger = logging.getLogger(__name__)
 
 CANONICAL_STORE_ID = "STORE_BLR_002"
 STORE_ID_ALIASES = {"STORE_BLR_002", "ST1008"}
+_STORE_ID_ALIASES_UPPER = {s.upper() for s in STORE_ID_ALIASES}
 
 
 def normalize_store_id(raw: str) -> str:
-    if raw.upper() in {s.upper() for s in STORE_ID_ALIASES}:
+    if raw.upper() in _STORE_ID_ALIASES_UPPER:
         return CANONICAL_STORE_ID
     return raw
 
@@ -181,9 +182,11 @@ async def ingest_events(events: List[Event]) -> IngestResponse:
         try:
             ev.store_id = normalize_store_id(ev.store_id)
             valid_events.append(ev)
-        except Exception as exc:
-            rejected += 1
-            errors.append({"event_id": getattr(ev, "event_id", None), "reason": str(exc)})
+        except IntegrityError:
+            errors.append({"event_id": getattr(ev, "event_id", None), "reason": "duplicate_event"})
+        except Exception:
+            logger.exception("Ingest error for event %s", getattr(ev, "event_id", None))
+            errors.append({"event_id": getattr(ev, "event_id", None), "reason": "processing_error"})
 
     async with AsyncSessionLocal() as session:
         for ev in valid_events:
@@ -202,7 +205,7 @@ async def ingest_events(events: List[Event]) -> IngestResponse:
                     queue_depth=ev.metadata.queue_depth,
                     sku_zone=ev.metadata.sku_zone,
                     session_seq=ev.metadata.session_seq,
-                    ingested_at=datetime.utcnow(),
+                    ingested_at=datetime.now(timezone.utc),
                 )
                 session.add(row)
                 await session.flush()
@@ -212,10 +215,12 @@ async def ingest_events(events: List[Event]) -> IngestResponse:
             except IntegrityError:
                 await session.rollback()
                 duplicate += 1
-            except Exception as exc:
+                errors.append({"event_id": ev.event_id, "reason": "duplicate_event"})
+            except Exception:
                 await session.rollback()
                 rejected += 1
-                errors.append({"event_id": ev.event_id, "reason": str(exc)})
+                logger.exception("Ingest error for event %s", ev.event_id)
+                errors.append({"event_id": ev.event_id, "reason": "processing_error"})
 
     return IngestResponse(
         accepted=accepted,
