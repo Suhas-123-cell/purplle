@@ -115,7 +115,6 @@ async def _check_conversion_drop(
     # April 10).
     now = await get_reference_now(session, store_id)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    seven_days_ago = now - timedelta(days=7)
 
     async def _day_conversion(day_start: datetime, day_end: datetime) -> float:
         visitor_rows = await session.execute(

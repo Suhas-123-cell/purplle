@@ -20,10 +20,6 @@ except ImportError:  # pragma: no cover - used when uvicorn imports main.py dire
 _STALE_THRESHOLD_SECONDS = 600  # 10 minutes
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse:
     # Use the latest event timestamp as the reference so that historical/replay
     # data is not treated as stale relative to the wall-clock system time.
@@ -34,12 +30,6 @@ async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse
         db_status = "ok"
     except SQLAlchemyError:
         db_status = "unavailable"
-
-    last_event_ts_result = await session.scalar(
-        select(func.max(EventRow.timestamp)).where(
-            EventRow.store_id == store_id
-        )
-    )
 
     camera_ts_result = await session.execute(
         select(
@@ -82,7 +72,7 @@ async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse
         status=overall_status,
         db_status=db_status,
         store_id=store_id,
-        last_event_ts=last_event_ts_result,
+        last_event_ts=now,
         camera_statuses=camera_statuses,
-        checked_at=datetime.utcnow(),
+        checked_at=datetime.now(timezone.utc),
     )

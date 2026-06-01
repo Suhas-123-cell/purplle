@@ -29,10 +29,10 @@ async def compute_funnel(session: AsyncSession, store_id: str) -> FunnelData:
     total_entries = len(all_visitors)
 
     zone_visitors = await get_zone_visitors(session, store_id, all_visitors)
-    total_zone = len(zone_visitors) if all_visitors else 0
+    total_zone = len(zone_visitors)
 
     queue_visitors = await get_billing_queue_visitors(session, store_id, all_visitors)
-    total_queue = len(queue_visitors) if all_visitors else 0
+    total_queue = len(queue_visitors)
 
     reference_now = await get_reference_now(session, store_id)
     purchase_visitors = await get_purchase_visitors(
