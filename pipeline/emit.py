@@ -44,6 +44,16 @@ DEFAULT_CLIP_START_TIME = "2026-04-10T10:00:00Z"
 # API configuration
 API_BATCH_SIZE = 100
 API_TIMEOUT_SECONDS = 15
+LOW_CONFIDENCE_REVIEW_THRESHOLD = 0.40
+MEDIUM_CONFIDENCE_THRESHOLD = 0.65
+
+
+def _confidence_bucket(confidence: float) -> str:
+    if confidence < LOW_CONFIDENCE_REVIEW_THRESHOLD:
+        return "LOW"
+    if confidence < MEDIUM_CONFIDENCE_THRESHOLD:
+        return "MEDIUM"
+    return "HIGH"
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +143,33 @@ def build_event(
 
     confidence = max(0.0, min(1.0, float(confidence)))
 
+    explicit_flags = extra_metadata.pop("review_flags", None) or []
+    review_flags = list(dict.fromkeys(str(flag) for flag in explicit_flags))
+    if confidence < LOW_CONFIDENCE_REVIEW_THRESHOLD:
+        review_flags.append("LOW_DETECTION_CONFIDENCE")
+    if extra_metadata.pop("low_confidence", False):
+        review_flags.append("LOW_DETECTION_CONFIDENCE")
+    if extra_metadata.get("ambiguous_reentry"):
+        review_flags.append("AMBIGUOUS_REENTRY_MATCH")
+    if is_staff:
+        review_flags.append("STAFF_HEURISTIC")
+
+    review_flags = list(dict.fromkeys(review_flags))
+    confidence_bucket = extra_metadata.pop(
+        "confidence_bucket", _confidence_bucket(confidence)
+    )
+    confidence_reason = extra_metadata.pop("confidence_reason", None)
+    if confidence_reason is None and "LOW_DETECTION_CONFIDENCE" in review_flags:
+        confidence_reason = "Detection confidence below review threshold"
+
     metadata: Dict[str, Any] = {
         "queue_depth": queue_depth,
         "sku_zone": sku_zone,
         "session_seq": session_seq,
+        "review_required": bool(review_flags),
+        "review_flags": review_flags,
+        "confidence_bucket": confidence_bucket,
+        "confidence_reason": confidence_reason,
     }
     metadata.update(extra_metadata)
 

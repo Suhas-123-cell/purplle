@@ -15,6 +15,7 @@ are not present (CI environment without GPU/weights uses mocks).
 from __future__ import annotations
 
 import uuid
+import sys
 from datetime import datetime, timedelta
 from typing import List
 from unittest.mock import MagicMock, patch
@@ -22,6 +23,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models import Event, EventMetadata, EventType
+sys.modules.setdefault("requests", MagicMock())
+from pipeline.emit import build_event
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -397,6 +400,96 @@ class TestConfidenceCalibration:
     def test_confidence_stored_as_float(self):
         ev = _make_event(confidence=0.754)
         assert isinstance(ev.confidence, float)
+
+    def test_low_confidence_event_carries_review_flag(self):
+        ev = build_event(
+            event_type=EventType.ENTRY.value,
+            store_id=STORE_ID,
+            camera_id="CAM_ENTRY_01",
+            visitor_id="V_LOW_CONF",
+            timestamp=BASE_TS.isoformat(),
+            confidence=0.31,
+        )
+
+        assert ev["metadata"]["review_required"] is True
+        assert "LOW_DETECTION_CONFIDENCE" in ev["metadata"]["review_flags"]
+        assert ev["metadata"]["confidence_bucket"] == "LOW"
+
+    def test_medium_confidence_event_is_not_review_required(self):
+        ev = build_event(
+            event_type=EventType.ENTRY.value,
+            store_id=STORE_ID,
+            camera_id="CAM_ENTRY_01",
+            visitor_id="V_MED_CONF",
+            timestamp=BASE_TS.isoformat(),
+            confidence=0.55,
+        )
+
+        assert ev["metadata"]["review_required"] is False
+        assert ev["metadata"]["review_flags"] == []
+        assert ev["metadata"]["confidence_bucket"] == "MEDIUM"
+
+
+class TestTrackerHeuristics:
+    """Focused tests for production-style tracker assumptions."""
+
+    def test_fast_multi_zone_sweep_marks_staff(self):
+        np = pytest.importorskip("numpy")
+        from pipeline.tracker import VisitorTracker
+
+        tracker = VisitorTracker()
+        visitor_id, _ = tracker.assign_visitor_id(
+            101, (0.1, 0.1, 0.3, 0.7), frame=None, timestamp=BASE_TS.timestamp()
+        )
+
+        for offset, zone_id in enumerate(["SKINCARE", "MAKEUP", "BILLING"]):
+            tracker.record_zone(
+                visitor_id,
+                zone_id,
+                BASE_TS + timedelta(seconds=offset * 20),
+            )
+
+        session = tracker.get_session(visitor_id)
+        assert session is not None
+        assert session["is_staff"] is True
+        assert session["staff_reason"] == "FAST_MULTI_ZONE_SWEEP"
+        assert "STAFF_FAST_MULTI_ZONE_SWEEP" in session["review_flags"]
+
+    def test_reentry_match_is_consumed_once(self, monkeypatch):
+        np = pytest.importorskip("numpy")
+        from pipeline.tracker import VisitorTracker
+
+        tracker = VisitorTracker(feature_match_threshold=0.75)
+        feature = np.ones(48, dtype=np.float32)
+        feature = feature / np.linalg.norm(feature)
+
+        monkeypatch.setattr(
+            "pipeline.tracker._extract_histogram_feature",
+            lambda frame, bbox: feature,
+        )
+
+        visitor_id, is_reentry = tracker.assign_visitor_id(
+            1, (0.1, 0.1, 0.3, 0.7), frame=np.zeros((20, 20, 3)), timestamp=100.0
+        )
+        assert not is_reentry
+
+        tracker.record_exit(
+            visitor_id,
+            datetime.fromtimestamp(120.0),
+            track_id=1,
+        )
+
+        matched_id, is_reentry = tracker.assign_visitor_id(
+            2, (0.1, 0.1, 0.3, 0.7), frame=np.zeros((20, 20, 3)), timestamp=130.0
+        )
+        assert is_reentry is True
+        assert matched_id == visitor_id
+
+        second_id, second_reentry = tracker.assign_visitor_id(
+            3, (0.1, 0.1, 0.3, 0.7), frame=np.zeros((20, 20, 3)), timestamp=131.0
+        )
+        assert second_reentry is False
+        assert second_id != visitor_id
 
 
 # ─────────────────────────────────────────────────────────────────────────────
