@@ -4,557 +4,949 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Purplle Store Intelligence — Brigade Road</title>
-  <style>
-    :root {
-      --bg:        #0f1117;
-      --surface:   #1a1d27;
-      --border:    #2a2d3e;
-      --accent:    #8b5cf6;
-      --accent2:   #06b6d4;
-      --success:   #10b981;
-      --warn:      #f59e0b;
-      --danger:    #ef4444;
-      --text:      #e2e8f0;
-      --muted:     #64748b;
-      --font:      'Inter', system-ui, sans-serif;
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              purple: '#6C5CE7',
+              purpleLight: '#A29BFE',
+              purpleDark: '#4834D4',
+              bg: '#0F0E17',
+              card: '#1A1825',
+              cardHover: '#201E2E',
+              border: '#2A2740',
+              borderLight: '#3D3A55',
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
+          },
+          animation: {
+            'pulse-dot': 'pulseDot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'fade-up': 'fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) forwards',
+            'fade-in': 'fadeIn 0.5s cubic-bezier(0.32, 0.72, 0, 1) forwards',
+            'bar-grow': 'barGrow 1s cubic-bezier(0.32, 0.72, 0, 1) forwards',
+          },
+          keyframes: {
+            pulseDot: {
+              '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+              '50%': { opacity: '0.5', transform: 'scale(0.85)' },
+            },
+            fadeUp: {
+              from: { opacity: '0', transform: 'translateY(20px)' },
+              to: { opacity: '1', transform: 'translateY(0)' },
+            },
+            fadeIn: {
+              from: { opacity: '0' },
+              to: { opacity: '1' },
+            },
+            barGrow: {
+              from: { width: '0%' },
+              to: { width: 'var(--bar-w)' },
+            }
+          }
+        }
+      }
     }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+  </script>
+  <style>
+    /* ── Base ── */
+    * { box-sizing: border-box; }
 
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      min-height: 100vh;
+      background-color: oklch(16% 0.018 285);
+      color: oklch(91% 0.018 285);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Header ─────────────────────────────────────────────── */
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 18px 32px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
+    /* ── Subtle analytical surface ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), transparent 240px);
     }
 
-    .header-left { display: flex; align-items: center; gap: 14px; }
-
-    .logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-weight: 700; font-size: 18px; color: #fff;
+    /* ── Noise grain overlay ── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 160px 160px;
     }
 
-    h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
-    .store-tag {
-      font-size: 11px; color: var(--muted);
-      background: var(--border); border-radius: 4px;
-      padding: 2px 7px; margin-left: 6px;
-    }
-
-    .header-right { display: flex; align-items: center; gap: 16px; }
-
-    #live-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--success);
-      animation: pulse 2s infinite;
-    }
-    #live-dot.stale { background: var(--warn); animation: none; }
-    #live-dot.error { background: var(--danger); animation: none; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.4; }
-    }
-
-    #last-updated { font-size: 12px; color: var(--muted); }
-
-    /* ── Layout ─────────────────────────────────────────────── */
+    /* ── Layout z stacking ── */
+    header, main, #error-banner-wrap { position: relative; z-index: 2; }
     main {
+      width: 100%;
       max-width: 1280px;
-      margin: 0 auto;
-      padding: 28px 32px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
+      overflow-x: hidden;
+    }
+    section, .grid {
+      min-width: 0;
+      max-width: 100%;
     }
 
-    /* ── KPI Row ─────────────────────────────────────────────── */
-    .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+    /* ── Custom transitions ── */
+    .transition-spring {
+      transition: all 0.6s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .transition-fast {
+      transition: all 0.35s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
-    .kpi-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 22px 24px;
-      display: flex;
-      flex-direction: column;
+    /* ── Double-bezel card ── */
+    .bezel-outer {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 2px;
+      min-width: 0;
+    }
+    .bezel-inner {
+      background: #1A1825;
+      border-radius: 6px;
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.06), inset 0 -1px 1px rgba(0,0,0,0.3);
+      position: relative;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .bezel-inner::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    }
+
+    /* ── KPI card accent bar ── */
+    .kpi-accent-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #6C5CE7, #A29BFE, transparent);
+      border-radius: 2px 2px 0 0;
+      opacity: 0;
+      transition: opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .bezel-outer:hover .kpi-accent-bar { opacity: 1; }
+
+    /* ── Severity colors ── */
+    .sev-critical { color: #FF6B6B; }
+    .sev-warn { color: #FFC857; }
+    .sev-info { color: #74B9FF; }
+
+    .bg-critical { background: rgba(255,107,107,0.06); }
+    .bg-warn { background: rgba(255,200,87,0.06); }
+    .bg-info { background: rgba(116,185,255,0.06); }
+
+    /* ── Funnel step bar ── */
+    .funnel-bar {
+      height: 36px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #6C5CE7, #A29BFE);
+      position: relative;
+      transition: width 1.1s cubic-bezier(0.32, 0.72, 0, 1);
+      box-shadow: 0 0 16px rgba(108, 92, 231, 0.25);
+      min-width: 4px;
+    }
+
+    /* ── Zone intensity card ── */
+    .zone-card {
+      border-radius: 8px;
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      transition: all 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .zone-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    /* ── Camera pill ── */
+    .cam-pill {
+      display: inline-flex;
+      align-items: center;
       gap: 6px;
-      transition: border-color 0.2s;
-    }
-    .kpi-card:hover { border-color: var(--accent); }
-
-    .kpi-label {
+      padding: 5px 10px 5px 6px;
+      border-radius: 999px;
       font-size: 11px;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+      transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .cam-pill.live {
+      background: rgba(0, 214, 143, 0.08);
+      border-color: rgba(0, 214, 143, 0.2);
+      color: #00D68F;
+    }
+    .cam-pill.stale {
+      background: rgba(255,107,107,0.08);
+      border-color: rgba(255,107,107,0.2);
+      color: #FF6B6B;
     }
 
-    .kpi-value {
-      font-size: 40px;
-      font-weight: 700;
-      letter-spacing: -1.5px;
-      line-height: 1;
+    /* ── Scroll reveal ── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.7s cubic-bezier(0.32, 0.72, 0, 1),
+                  transform 0.7s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    .kpi-sub { font-size: 12px; color: var(--muted); }
+    /* ── Loading shimmer ── */
+    @keyframes shimmer {
+      0% { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+    .shimmer {
+      background: linear-gradient(90deg, #2A2740 25%, #3D3A55 50%, #2A2740 75%);
+      background-size: 800px 100%;
+      animation: shimmer 1.6s infinite linear;
+      border-radius: 4px;
+    }
 
-    .kpi-value.accent  { color: var(--accent); }
-    .kpi-value.cyan    { color: var(--accent2); }
-    .kpi-value.green   { color: var(--success); }
-    .kpi-value.amber   { color: var(--warn); }
-
-    /* ── Gauge ─────────────────────────────────────────────── */
-    .gauge-wrap {
-      position: relative;
-      display: flex;
+    /* ── Section eyebrow label ── */
+    .eyebrow {
+      display: inline-flex;
       align-items: center;
-      gap: 16px;
-      margin-top: 4px;
-    }
-
-    .gauge-svg { flex-shrink: 0; }
-
-    .gauge-arc-bg {
-      fill: none;
-      stroke: var(--border);
-      stroke-width: 6;
-      stroke-linecap: round;
-    }
-    .gauge-arc-fill {
-      fill: none;
-      stroke: var(--accent);
-      stroke-width: 6;
-      stroke-linecap: round;
-      stroke-dasharray: 157; /* circumference of r=25 half-circle */
-      stroke-dashoffset: 157;
-      transition: stroke-dashoffset 0.7s ease;
-    }
-
-    .gauge-center-text {
-      font-size: 13px;
+      gap: 6px;
+      padding: 3px 10px 3px 6px;
+      border-radius: 999px;
+      font-size: 10px;
       font-weight: 700;
-      fill: var(--text);
-      text-anchor: middle;
-    }
-
-    /* ── Queue depth bar ─────────────────────────────────────── */
-    .queue-bar-wrap { margin-top: 8px; }
-    .queue-bar-track {
-      height: 8px; border-radius: 4px;
-      background: var(--border);
-      overflow: hidden;
-    }
-    .queue-bar-fill {
-      height: 100%; border-radius: 4px;
-      background: linear-gradient(90deg, var(--success), var(--warn));
-      transition: width 0.6s ease, background 0.4s;
-      width: 0%;
-    }
-    .queue-bar-fill.critical {
-      background: linear-gradient(90deg, var(--warn), var(--danger));
-    }
-
-    /* ── Bottom row ─────────────────────────────────────────── */
-    .bottom-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px 24px;
-    }
-
-    .panel-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--muted);
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 16px;
+      background: rgba(108, 92, 231, 0.12);
+      border: 1px solid rgba(108, 92, 231, 0.2);
+      color: #A29BFE;
+      margin-bottom: 10px;
     }
 
-    /* ── Zone dwell bars ─────────────────────────────────────── */
-    .zone-bar-list { display: flex; flex-direction: column; gap: 10px; }
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3D3A55; border-radius: 2px; }
 
-    .zone-row { display: flex; align-items: center; gap: 12px; }
-
-    .zone-name {
-      font-size: 12px; color: var(--muted);
-      width: 80px; flex-shrink: 0;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-
-    .zone-track {
-      flex: 1; height: 8px; border-radius: 4px;
-      background: var(--border); overflow: hidden;
-    }
-    .zone-fill {
-      height: 100%; border-radius: 4px;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      transition: width 0.7s ease;
-      width: 0%;
-    }
-
-    .zone-val {
-      font-size: 12px; color: var(--text);
-      width: 46px; text-align: right; flex-shrink: 0;
-    }
-
-    /* ── Anomaly badges ─────────────────────────────────────── */
-    .anomaly-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .anomaly-none {
-      font-size: 13px;
-      color: var(--success);
-      padding: 8px 0;
-    }
-
-    .anomaly-badge {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border-left: 3px solid var(--danger);
-      background: rgba(239,68,68,0.08);
-    }
-    .anomaly-badge.WARN {
-      border-left-color: var(--warn);
-      background: rgba(245,158,11,0.08);
-    }
-    .anomaly-badge.INFO {
-      border-left-color: var(--accent2);
-      background: rgba(6,182,212,0.08);
-    }
-
-    .anomaly-type {
-      font-size: 11px; font-weight: 700;
-      letter-spacing: 0.05em; color: var(--danger);
-    }
-    .WARN  .anomaly-type { color: var(--warn); }
-    .INFO  .anomaly-type { color: var(--accent2); }
-
-    .anomaly-body { display: flex; flex-direction: column; gap: 3px; }
-    .anomaly-desc { font-size: 12px; color: var(--text); line-height: 1.4; }
-    .anomaly-action { font-size: 11px; color: var(--muted); font-style: italic; }
-
-    /* ── Error banner ─────────────────────────────────────────── */
+    /* ── Error banner ── */
     #error-banner {
       display: none;
-      background: rgba(239,68,68,0.12);
-      border: 1px solid var(--danger);
       border-radius: 8px;
-      padding: 12px 16px;
+      padding: 12px 18px;
       font-size: 13px;
-      color: var(--danger);
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      background: rgba(255,107,107,0.08);
+      border: 1px solid rgba(255,107,107,0.25);
+      color: #FF6B6B;
     }
 
-    /* ── Responsive ─────────────────────────────────────────── */
-    @media (max-width: 900px) {
-      .kpi-row { grid-template-columns: repeat(2, 1fr); }
-      .bottom-row { grid-template-columns: 1fr; }
+    /* ── Health pill ── */
+    .health-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .health-pill.live {
+      background: rgba(0, 214, 143, 0.1);
+      border: 1px solid rgba(0, 214, 143, 0.25);
+      color: #00D68F;
+    }
+    .health-pill.degraded {
+      background: rgba(255,200,87,0.1);
+      border: 1px solid rgba(255,200,87,0.25);
+      color: #FFC857;
+    }
+    .health-pill .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .health-pill.live .dot {
+      animation: pulseDot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* ── Number counter animation ── */
+    .kpi-number {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      color: #E2E0F0;
+    }
+    .kpi-number.danger {
+      color: #FF6B6B;
+    }
+
+    /* ── Responsive overrides ── */
+    @media (max-width: 767px) {
+      .kpi-number { font-size: 32px; }
     }
     @media (max-width: 520px) {
-      .kpi-row { grid-template-columns: 1fr; }
-      header { padding: 14px 16px; }
-      main { padding: 16px; }
+      html, body { overflow-x: hidden; }
+      main {
+        width: 100vw;
+        max-width: 100vw;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+      }
+      section {
+        width: 100%;
+        max-width: calc(100vw - 24px);
+      }
+      #section-kpi .grid { grid-template-columns: 1fr !important; }
+      .funnel-bar { min-width: 3px; }
+      .funnel-drop-meta { display: none !important; }
     }
   </style>
 </head>
 <body>
 
-<header>
-  <div class="header-left">
-    <div class="logo">P</div>
-    <div>
-      <h1>Store Intelligence <span class="store-tag">STORE_BLR_002</span></h1>
+<!-- ═══════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════ -->
+<header class="sticky top-0 z-10 border-b border-brand-border" style="background: rgba(15,14,23,0.85); backdrop-filter: blur(20px);">
+  <div class="max-w-screen-xl mx-auto px-4 sm:px-8 py-4 flex items-center justify-between gap-4">
+
+    <!-- Left: Logo + Title -->
+    <div class="flex items-center gap-3 min-w-0">
+      <!-- Logo mark -->
+      <div class="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center relative overflow-hidden"
+           style="background: linear-gradient(135deg, #6C5CE7, #A29BFE); box-shadow: 0 0 20px rgba(108,92,231,0.4);">
+        <span style="font-size:16px;font-weight:800;color:#fff;letter-spacing:-0.05em;">P</span>
+      </div>
+
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-sm font-bold tracking-tight text-white/95 whitespace-nowrap">
+            Purplle
+            <span style="color:#A29BFE;">Store Intelligence</span>
+          </h1>
+        </div>
+        <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+          <span class="text-[11px] text-white/40 font-medium">Brigade Road, Bangalore</span>
+          <span class="text-white/20 text-[11px]">·</span>
+          <span class="text-[11px] text-white/40 font-medium" id="header-dataset-date">—</span>
+        </div>
+      </div>
     </div>
-  </div>
-  <div class="header-right">
-    <div id="live-dot" title="Feed status"></div>
-    <span id="last-updated">Connecting…</span>
+
+    <!-- Right: Health + last updated -->
+    <div class="flex items-center gap-3 flex-shrink-0">
+      <div class="hidden sm:flex flex-col items-end gap-0.5">
+        <span class="text-[10px] text-white/25 font-medium uppercase tracking-widest">Last refresh</span>
+        <span class="text-[11px] text-white/50 font-semibold" id="last-updated">Connecting…</span>
+      </div>
+      <div id="health-pill" class="health-pill live">
+        <div class="dot"></div>
+        <span id="health-status-text">LIVE</span>
+      </div>
+    </div>
   </div>
 </header>
 
-<main>
+<!-- ═══════════════════════════════════════════════════════
+     MAIN CONTENT
+═══════════════════════════════════════════════════════ -->
+<main class="max-w-screen-xl mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">
 
-  <div id="error-banner"></div>
+  <!-- Error Banner -->
+  <div id="error-banner-wrap">
+    <div id="error-banner"></div>
+  </div>
 
-  <!-- KPI row -->
-  <div class="kpi-row">
-
-    <!-- Unique Visitors -->
-    <div class="kpi-card">
-      <div class="kpi-label">Unique Visitors Today</div>
-      <div class="kpi-value accent" id="kpi-visitors">—</div>
-      <div class="kpi-sub" id="kpi-visitors-sub">loading…</div>
+  <!-- ── Section 1: KPI Cards ──────────────────────────────── -->
+  <section class="reveal" id="section-kpi">
+    <div class="eyebrow">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="3" fill="currentColor"/></svg>
+      Live Metrics
     </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
 
-    <!-- Conversion Rate gauge -->
-    <div class="kpi-card">
-      <div class="kpi-label">Conversion Rate</div>
-      <div class="gauge-wrap">
-        <svg class="gauge-svg" width="60" height="36" viewBox="0 0 60 36">
-          <path class="gauge-arc-bg"
-            d="M 5 35 A 25 25 0 0 1 55 35" />
-          <path class="gauge-arc-fill" id="gauge-arc"
-            d="M 5 35 A 25 25 0 0 1 55 35" />
-          <text class="gauge-center-text" id="gauge-text" x="30" y="34">0%</text>
-        </svg>
-        <div>
-          <div class="kpi-value cyan" id="kpi-conversion">—</div>
-          <div class="kpi-sub">of visitors purchased</div>
+      <!-- Tracked Visitors -->
+      <div class="bezel-outer group cursor-default transition-spring hover:scale-[1.01]">
+        <div class="bezel-inner p-5">
+          <div class="kpi-accent-bar"></div>
+          <div class="flex items-start justify-between mb-3">
+            <div class="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">Tracked Visitors</div>
+            <div class="text-[11px] font-black opacity-50">VIS</div>
+          </div>
+          <div class="kpi-number" id="kpi-visitors">—</div>
+          <div class="text-[11px] text-white/35 mt-2 font-medium" id="kpi-visitors-sub">loading…</div>
+        </div>
+      </div>
+
+      <!-- Conversion Rate -->
+      <div class="bezel-outer group cursor-default transition-spring hover:scale-[1.01]">
+        <div class="bezel-inner p-5">
+          <div class="kpi-accent-bar"></div>
+          <div class="flex items-start justify-between mb-3">
+            <div class="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">Conversion Rate</div>
+            <div class="text-[11px] font-black opacity-50">CVR</div>
+          </div>
+          <div class="kpi-number" id="kpi-conversion" style="color:#A29BFE;">—</div>
+          <!-- Mini arc gauge -->
+          <div class="mt-3">
+            <div class="h-1 rounded-full bg-brand-border overflow-hidden">
+              <div id="conversion-bar" class="h-full rounded-full transition-spring" style="width:0%; background: linear-gradient(90deg, #6C5CE7, #A29BFE);"></div>
+            </div>
+            <div class="text-[11px] text-white/35 mt-1.5 font-medium">of visitors purchased</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Queue Depth -->
+      <div class="bezel-outer group cursor-default transition-spring hover:scale-[1.01]">
+        <div class="bezel-inner p-5">
+          <div class="kpi-accent-bar"></div>
+          <div class="flex items-start justify-between mb-3">
+            <div class="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">Queue Depth</div>
+            <div class="text-[11px] font-black opacity-50">QUE</div>
+          </div>
+          <div class="kpi-number" id="kpi-queue">—</div>
+          <div class="mt-3">
+            <div class="h-1 rounded-full bg-brand-border overflow-hidden">
+              <div id="queue-bar" class="h-full rounded-full transition-spring" style="width:0%; background: linear-gradient(90deg, #00D68F, #FFC857);"></div>
+            </div>
+            <div class="text-[11px] text-white/35 mt-1.5 font-medium" id="kpi-queue-sub">billing counter wait</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Abandonment Rate -->
+      <div class="bezel-outer group cursor-default transition-spring hover:scale-[1.01]">
+        <div class="bezel-inner p-5">
+          <div class="kpi-accent-bar"></div>
+          <div class="flex items-start justify-between mb-3">
+            <div class="text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">Abandonment Rate</div>
+            <div class="text-[11px] font-black opacity-50">ABN</div>
+          </div>
+          <div class="kpi-number" id="kpi-abandonment" style="color:#FFC857;">—</div>
+          <div class="text-[11px] text-white/35 mt-2 font-medium">queue walk-offs</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Section 2: Conversion Funnel ──────────────────────── -->
+  <section class="reveal" id="section-funnel" style="transition-delay: 0.1s;">
+    <div class="bezel-outer">
+      <div class="bezel-inner p-6 sm:p-8">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
+          <div>
+            <div class="eyebrow" style="margin-bottom: 6px;">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1L9 5L1 9V1Z" fill="currentColor"/></svg>
+              Funnel Analysis
+            </div>
+            <h2 class="text-base font-bold text-white/90 tracking-tight">Customer Conversion Funnel</h2>
+          </div>
+          <div class="text-[11px] text-white/30 font-semibold" id="funnel-date-label">—</div>
+        </div>
+        <div class="flex flex-col gap-5" id="funnel-container">
+          <!-- Shimmer placeholders -->
+          <div class="shimmer h-8 rounded-md w-full opacity-60"></div>
+          <div class="shimmer h-8 rounded-md w-4/5 opacity-50"></div>
+          <div class="shimmer h-8 rounded-md w-3/5 opacity-40"></div>
+          <div class="shimmer h-8 rounded-md w-2/5 opacity-30"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Section 3: Heatmap + Anomalies (2-col) ────────────── -->
+  <section class="reveal grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6" id="section-middle" style="transition-delay: 0.15s;">
+
+    <!-- Zone Heatmap -->
+    <div class="bezel-outer">
+      <div class="bezel-inner p-6">
+        <div class="eyebrow" style="margin-bottom: 6px;">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1" y="1" width="3.5" height="3.5" fill="currentColor"/><rect x="5.5" y="1" width="3.5" height="3.5" fill="currentColor"/><rect x="1" y="5.5" width="3.5" height="3.5" fill="currentColor"/><rect x="5.5" y="5.5" width="3.5" height="3.5" fill="currentColor"/></svg>
+          Zone Activity
+        </div>
+        <h2 class="text-base font-bold text-white/90 tracking-tight mb-5">Zone Activity Map</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5" id="heatmap-grid">
+          <!-- Shimmer -->
+          <div class="shimmer h-20 rounded-xl opacity-60"></div>
+          <div class="shimmer h-20 rounded-xl opacity-50"></div>
+          <div class="shimmer h-20 rounded-xl opacity-40"></div>
+          <div class="shimmer h-20 rounded-xl opacity-60"></div>
+          <div class="shimmer h-20 rounded-xl opacity-50"></div>
+          <div class="shimmer h-20 rounded-xl opacity-40"></div>
         </div>
       </div>
     </div>
 
-    <!-- Queue depth -->
-    <div class="kpi-card">
-      <div class="kpi-label">Billing Queue Depth</div>
-      <div class="kpi-value amber" id="kpi-queue">—</div>
-      <div class="queue-bar-wrap">
-        <div class="queue-bar-track">
-          <div class="queue-bar-fill" id="queue-bar"></div>
+    <!-- Anomalies Panel -->
+    <div class="bezel-outer">
+      <div class="bezel-inner p-6">
+        <div class="eyebrow" style="margin-bottom: 6px;">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1L9.33 8.5H0.67L5 1Z" fill="currentColor"/></svg>
+          Alerts
+        </div>
+        <h2 class="text-base font-bold text-white/90 tracking-tight mb-5">Active Anomalies</h2>
+        <div class="flex flex-col gap-2.5 overflow-y-auto" style="max-height: 320px;" id="anomaly-list">
+          <div class="shimmer h-16 rounded-xl opacity-60"></div>
+          <div class="shimmer h-16 rounded-xl opacity-50"></div>
         </div>
       </div>
-      <div class="kpi-sub" id="kpi-abandonment">abandonment: —</div>
     </div>
 
-    <!-- Active anomalies -->
-    <div class="kpi-card">
-      <div class="kpi-label">Active Anomalies</div>
-      <div class="kpi-value" id="kpi-anomaly-count" style="color:var(--success)">—</div>
-      <div class="kpi-sub" id="kpi-anomaly-sub">loading…</div>
-    </div>
+  </section>
 
-  </div>
-
-  <!-- Bottom row -->
-  <div class="bottom-row">
-
-    <!-- Zone dwell chart -->
-    <div class="panel">
-      <div class="panel-title">Avg Dwell Time by Zone</div>
-      <div class="zone-bar-list" id="zone-bars">
-        <div style="font-size:13px;color:var(--muted)">Loading zones…</div>
+  <!-- ── Section 4: Camera Feed Status ─────────────────────── -->
+  <section class="reveal" id="section-cameras" style="transition-delay: 0.2s;">
+    <div class="bezel-outer">
+      <div class="bezel-inner p-5 sm:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <div class="eyebrow" style="margin-bottom: 6px;">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="5" cy="5" r="1.5" fill="currentColor"/></svg>
+              Infrastructure
+            </div>
+            <h2 class="text-sm font-bold text-white/90 tracking-tight">Camera Feed Status</h2>
+          </div>
+          <div class="text-[10px] text-white/25 font-semibold uppercase tracking-widest" id="cameras-summary">—</div>
+        </div>
+        <div class="flex flex-wrap gap-2" id="camera-pills">
+          <div class="shimmer h-7 w-28 rounded-full opacity-60"></div>
+          <div class="shimmer h-7 w-24 rounded-full opacity-50"></div>
+          <div class="shimmer h-7 w-32 rounded-full opacity-40"></div>
+        </div>
       </div>
     </div>
-
-    <!-- Anomaly detail -->
-    <div class="panel">
-      <div class="panel-title">Anomaly Detail</div>
-      <div class="anomaly-list" id="anomaly-list">
-        <div style="font-size:13px;color:var(--muted)">Loading…</div>
-      </div>
-    </div>
-
-  </div>
+  </section>
 
 </main>
 
+<!-- ═══════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════ -->
 <script>
-  /* ─── Config ────────────────────────────────────────────── */
-  const API_BASE = window.location.hostname === 'localhost'
+  /* ──────────────────────────────────────────────────────────
+     CONFIG
+  ────────────────────────────────────────────────────────── */
+  const API_BASE   = window.location.hostname === 'localhost'
     ? 'http://localhost:8000'
     : '/api';
 
-  const STORE_ID    = 'STORE_BLR_002';
-  const REFRESH_MS  = 5000;
-  const QUEUE_MAX   = 15;  // treat 15 as 100% of the queue bar
+  const STORE_ID   = 'STORE_BLR_002';
+  const REFRESH_MS = 10_000;  // 10 seconds
+  const QUEUE_WARN = 4;       // queue depth threshold for red styling
+  const QUEUE_MAX  = 12;      // treat as 100% of queue progress bar
 
-  /* ─── DOM refs ───────────────────────────────────────────── */
-  const $visitors       = document.getElementById('kpi-visitors');
-  const $visitorsSub    = document.getElementById('kpi-visitors-sub');
-  const $conversion     = document.getElementById('kpi-conversion');
-  const $gaugeArc       = document.getElementById('gauge-arc');
-  const $gaugeText      = document.getElementById('gauge-text');
-  const $queue          = document.getElementById('kpi-queue');
-  const $queueBar       = document.getElementById('queue-bar');
-  const $abandonment    = document.getElementById('kpi-abandonment');
-  const $anomalyCount   = document.getElementById('kpi-anomaly-count');
-  const $anomalySub     = document.getElementById('kpi-anomaly-sub');
-  const $zoneBars       = document.getElementById('zone-bars');
-  const $anomalyList    = document.getElementById('anomaly-list');
-  const $lastUpdated    = document.getElementById('last-updated');
-  const $liveDot        = document.getElementById('live-dot');
-  const $errorBanner    = document.getElementById('error-banner');
+  /* ──────────────────────────────────────────────────────────
+     DOM REFERENCES
+  ────────────────────────────────────────────────────────── */
+  const $visitors        = document.getElementById('kpi-visitors');
+  const $visitorsSub     = document.getElementById('kpi-visitors-sub');
+  const $conversion      = document.getElementById('kpi-conversion');
+  const $conversionBar   = document.getElementById('conversion-bar');
+  const $queue           = document.getElementById('kpi-queue');
+  const $queueBar        = document.getElementById('queue-bar');
+  const $queueSub        = document.getElementById('kpi-queue-sub');
+  const $abandonment     = document.getElementById('kpi-abandonment');
+  const $funnelContainer = document.getElementById('funnel-container');
+  const $funnelDateLabel = document.getElementById('funnel-date-label');
+  const $heatmapGrid     = document.getElementById('heatmap-grid');
+  const $anomalyList     = document.getElementById('anomaly-list');
+  const $cameraPills     = document.getElementById('camera-pills');
+  const $camerasSummary  = document.getElementById('cameras-summary');
+  const $lastUpdated     = document.getElementById('last-updated');
+  const $healthPill      = document.getElementById('health-pill');
+  const $healthText      = document.getElementById('health-status-text');
+  const $errorBanner     = document.getElementById('error-banner');
+  const $headerDataset   = document.getElementById('header-dataset-date');
 
-  /* ─── Gauge helper ───────────────────────────────────────── */
-  // The arc path spans 0..157 dash-offset (r=25 semi-circle)
-  function setGauge(fraction) {
-    const f = Math.max(0, Math.min(1, fraction));
-    const offset = 157 * (1 - f);
-    $gaugeArc.style.strokeDashoffset = offset.toFixed(1);
-    $gaugeText.textContent = (f * 100).toFixed(1) + '%';
+  /* ──────────────────────────────────────────────────────────
+     FORMAT HELPERS
+  ────────────────────────────────────────────────────────── */
+
+  /** Format dwell milliseconds into human-readable string */
+  function fmtDwell(ms) {
+    if (ms == null || ms <= 0) return '0s';
+    if (ms > 3_600_000) return '—';              // corrupted / > 1 hour
+    if (ms < 1000) return ms.toFixed(0) + 'ms';
+    if (ms < 60_000) return (ms / 1000).toFixed(0) + 's';
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1000);
+    return `${m}m ${s}s`;
   }
 
-  /* ─── Format helpers ─────────────────────────────────────── */
-  function fmtMs(ms) {
-    if (ms == null || ms === 0) return '0s';
-    if (ms < 60000) return (ms / 1000).toFixed(0) + 's';
-    return (ms / 60000).toFixed(1) + 'm';
-  }
-
+  /** Format a 0-1 float as percentage string, e.g. 0.143 → "14.3%" */
   function fmtPct(f) {
-    return (f * 100).toFixed(1) + '%';
+    return ((f || 0) * 100).toFixed(1) + '%';
   }
 
+  /** Format current time as HH:MM:SS */
   function nowStr() {
     return new Date().toLocaleTimeString('en-IN', { hour12: false });
   }
 
-  /* ─── Error/status helpers ───────────────────────────────── */
+  /**
+   * Given an ISO as_of string, return a display label.
+   * If the data is > 24h old, show "Dataset: {readable date}"
+   * Otherwise show "Live · HH:MM:SS"
+   */
+  function dataDateLabel(asOfStr) {
+    if (!asOfStr) return null;
+    const asOf  = new Date(asOfStr);
+    const diffH = (Date.now() - asOf.getTime()) / 3_600_000;
+    if (diffH > 24) {
+      return asOf.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    return null; // recent enough, no special label
+  }
+
+  /**
+   * Interpolate a purple intensity (0-100) to a CSS background color.
+   * 0 = very dim grey, 100 = vivid brand purple.
+   */
+  function intensityToBg(intensity) {
+    const t = Math.max(0, Math.min(100, intensity)) / 100;
+    // From #2A2740 (dim) to #6C5CE7 (vivid purple)
+    const r = Math.round(42  + (108 - 42)  * t);
+    const g = Math.round(39  + (92  - 39)  * t);
+    const b = Math.round(64  + (231 - 64)  * t);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /** Zone name prettifier: removes underscores, title-cases */
+  function fmtZoneName(id) {
+    return id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     ERROR / STATUS
+  ────────────────────────────────────────────────────────── */
+
   function showError(msg) {
     $errorBanner.style.display = 'block';
-    $errorBanner.textContent   = '⚠ ' + msg;
-    $liveDot.className = 'error';
+    $errorBanner.textContent   = 'Alert: ' + msg;
+    setHealthPill('degraded');
   }
 
   function clearError() {
     $errorBanner.style.display = 'none';
-    $liveDot.className = '';
   }
 
-  /* ─── Render functions ───────────────────────────────────── */
+  function setHealthPill(status) {
+    $healthPill.className = 'health-pill ' + (status === 'ok' ? 'live' : 'degraded');
+    $healthText.textContent = status === 'ok' ? 'LIVE' : 'DEGRADED';
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     RENDER: METRICS (KPI Cards)
+  ────────────────────────────────────────────────────────── */
+
   function renderMetrics(data) {
-    $visitors.textContent    = data.unique_visitors ?? '0';
-    $visitorsSub.textContent = 'as of ' + nowStr();
+    // Visitors
+    $visitors.textContent = data.unique_visitors ?? '0';
 
-    const rate = data.conversion_rate ?? 0;
-    $conversion.textContent  = fmtPct(rate);
-    setGauge(rate);
+    // Dataset date label in sub
+    const label = dataDateLabel(data.as_of);
+    $visitorsSub.textContent = label ? `Dataset: ${label}` : `Updated ${nowStr()}`;
 
+    // Dataset date in header
+    if (label) {
+      $headerDataset.textContent = `Dataset: ${label}`;
+    }
+
+    // Conversion rate
+    const cr = data.conversion_rate ?? 0;
+    $conversion.textContent = fmtPct(cr);
+    $conversionBar.style.width = Math.min(100, cr * 100).toFixed(1) + '%';
+
+    // Queue depth — color red if above warn threshold
     const depth = data.queue_depth ?? 0;
     $queue.textContent = depth;
-    const pct = Math.min(100, (depth / QUEUE_MAX) * 100).toFixed(0) + '%';
-    $queueBar.style.width = pct;
-    $queueBar.classList.toggle('critical', depth >= 8);
+    const isHighQueue = depth > QUEUE_WARN;
+    if (isHighQueue) {
+      $queue.classList.add('danger');
+      $queueBar.style.background = 'linear-gradient(90deg, #FFC857, #FF6B6B)';
+    } else {
+      $queue.classList.remove('danger');
+      $queueBar.style.background = 'linear-gradient(90deg, #00D68F, #A29BFE)';
+    }
+    $queueBar.style.width = Math.min(100, (depth / QUEUE_MAX) * 100).toFixed(1) + '%';
+    $queueSub.textContent = isHighQueue ? 'high — open extra counter' : 'billing counter wait';
 
-    const abRate = data.abandonment_rate ?? 0;
-    $abandonment.textContent = 'abandonment: ' + fmtPct(abRate);
+    // Abandonment rate
+    $abandonment.textContent = fmtPct(data.abandonment_rate ?? 0);
   }
 
-  function renderZones(cells) {
-    if (!cells || cells.length === 0) {
-      $zoneBars.innerHTML = '<div style="font-size:13px;color:var(--muted)">No zone data yet.</div>';
+  /* ──────────────────────────────────────────────────────────
+     RENDER: CONVERSION FUNNEL
+  ────────────────────────────────────────────────────────── */
+
+  function renderFunnel(data) {
+    const stages = data?.stages ?? [];
+
+    // Date label from funnel data field
+    if (data?.date) {
+      try {
+        const d = new Date(data.date + 'T00:00:00');
+        $funnelDateLabel.textContent = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+      } catch {
+        $funnelDateLabel.textContent = data.date;
+      }
+    }
+
+    if (stages.length === 0) {
+      $funnelContainer.innerHTML = `<div class="text-sm text-white/30 py-4">No funnel data available.</div>`;
       return;
     }
 
-    // Normalise against the max dwell
-    const maxDwell = Math.max(...cells.map(c => c.avg_dwell_ms || 0), 1);
+    const maxCount = Math.max(...stages.map(s => s.count || 0), 1);
 
-    $zoneBars.innerHTML = cells
-      .sort((a, b) => (b.avg_dwell_ms || 0) - (a.avg_dwell_ms || 0))
-      .map(cell => {
-        const pct = ((cell.avg_dwell_ms || 0) / maxDwell * 100).toFixed(1);
-        const lowConf = !cell.data_confidence
-          ? ' <span style="color:var(--muted);font-size:10px" title="Low sample count">~</span>'
-          : '';
-        return `
-          <div class="zone-row">
-            <div class="zone-name" title="${cell.zone_id}">${cell.zone_id.replace(/_/g,' ')}</div>
-            <div class="zone-track">
-              <div class="zone-fill" style="width:${pct}%"></div>
+    $funnelContainer.innerHTML = stages.map((s, i) => {
+      const widthPct = ((s.count || 0) / maxCount * 100).toFixed(1);
+      const drop     = s.drop_off_pct || 0;
+      const isFirst  = i === 0;
+
+      const dropBadge = isFirst
+        ? `<span class="text-[10px] font-bold text-white/25 uppercase tracking-widest">Baseline</span>`
+        : drop > 40
+          ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(255,107,107,0.15);color:#FF6B6B;">−${drop.toFixed(1)}%</span>`
+          : drop > 15
+            ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(255,200,87,0.15);color:#FFC857;">−${drop.toFixed(1)}%</span>`
+            : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(162,155,254,0.15);color:#A29BFE;">−${drop.toFixed(1)}%</span>`;
+
+      const STAGE_CODES = ['01', '02', '03', '04'];
+
+      return `
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-black opacity-40 tabular-nums">${STAGE_CODES[i] || ''}</span>
+              <span class="text-[11px] font-bold text-white/50 uppercase tracking-[0.1em]">${s.stage}</span>
             </div>
-            <div class="zone-val">${fmtMs(cell.avg_dwell_ms)}${lowConf}</div>
-          </div>`;
-      })
-      .join('');
+            <div class="funnel-drop-meta flex items-center gap-2">
+              ${dropBadge}
+              <span class="text-sm font-bold text-white/80 tabular-nums">${(s.count || 0).toLocaleString()}</span>
+            </div>
+          </div>
+          <div class="h-8 rounded-md overflow-hidden" style="background:rgba(255,255,255,0.04);">
+            <div class="funnel-bar" style="width:${widthPct}%; height:100%; border-radius: 6px;"></div>
+          </div>
+        </div>`;
+    }).join('');
   }
+
+  /* ──────────────────────────────────────────────────────────
+     RENDER: ZONE HEATMAP
+  ────────────────────────────────────────────────────────── */
+
+  function renderHeatmap(data) {
+    const cells = data?.cells ?? [];
+
+    if (cells.length === 0) {
+      $heatmapGrid.innerHTML = `<div class="col-span-3 text-sm text-white/30 py-4">No zone data yet.</div>`;
+      return;
+    }
+
+    // Sort by intensity descending (hottest zones first)
+    const sorted = [...cells].sort((a, b) => (b.intensity || 0) - (a.intensity || 0));
+
+    $heatmapGrid.innerHTML = sorted.map(cell => {
+      const bg     = intensityToBg(cell.intensity || 0);
+      const dwell  = fmtDwell(cell.avg_dwell_ms);
+      const isDim  = (cell.intensity || 0) < 25;
+      const lowConf = !cell.data_confidence;
+      const textCol = isDim ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.9)';
+
+      return `
+        <div class="zone-card" style="background:${bg}; border-color:rgba(255,255,255,${isDim ? '0.04' : '0.12'});">
+          <div class="flex items-start justify-between gap-1 mb-2">
+            <div class="text-[10px] font-bold leading-tight" style="color:${textCol}; word-break:break-word;">
+              ${fmtZoneName(cell.zone_id)}
+            </div>
+            ${lowConf ? `<span class="text-[8px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0" style="background:rgba(255,200,87,0.2);color:#FFC857;">low data</span>` : ''}
+          </div>
+          <div class="mt-auto">
+            <div class="text-[16px] font-extrabold leading-none" style="color:${isDim ? 'rgba(255,255,255,0.3)' : '#fff'};">${dwell}</div>
+            <div class="text-[9px] mt-1 font-medium" style="color:${textCol}; opacity:0.7;">${(cell.visit_count || 0).toLocaleString()} visits</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     RENDER: ANOMALIES
+  ────────────────────────────────────────────────────────── */
 
   function renderAnomalies(anomalies) {
-    const critical = anomalies.filter(a => a.severity === 'CRITICAL').length;
-    const warn     = anomalies.filter(a => a.severity === 'WARN').length;
-    const total    = anomalies.length;
-
-    $anomalyCount.textContent = total;
-    $anomalyCount.style.color = total === 0
-      ? 'var(--success)'
-      : critical > 0 ? 'var(--danger)' : 'var(--warn)';
-
-    if (total === 0) {
-      $anomalySub.textContent  = 'All systems normal';
-      $anomalyList.innerHTML   = '<div class="anomaly-none">No active anomalies.</div>';
+    if (!anomalies || anomalies.length === 0) {
+      $anomalyList.innerHTML = `
+        <div class="flex items-center gap-3 px-4 py-5 rounded-xl" style="background:rgba(0,214,143,0.06); border:1px solid rgba(0,214,143,0.15);">
+          <div class="text-xs font-black" style="color:#00D68F;">OK</div>
+          <div>
+            <div class="text-sm font-bold" style="color:#00D68F;">All systems normal</div>
+            <div class="text-[11px] text-white/35 mt-0.5">No active anomalies detected</div>
+          </div>
+        </div>`;
       return;
     }
 
-    $anomalySub.textContent = `${critical} critical · ${warn} warn`;
+    const SEV_CONFIG = {
+      CRITICAL: { color: '#FF6B6B', bg: 'rgba(255,107,107,0.07)', border: '#FF6B6B', icon: '🔴' },
+      WARN:     { color: '#FFC857', bg: 'rgba(255,200,87,0.07)',  border: '#FFC857', icon: '🟡' },
+      INFO:     { color: '#74B9FF', bg: 'rgba(116,185,255,0.07)', border: '#74B9FF', icon: '🔵' },
+    };
 
-    $anomalyList.innerHTML = anomalies
-      .sort((a, b) => {
-        const order = { CRITICAL: 0, WARN: 1, INFO: 2 };
-        return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
-      })
-      .map(a => `
-        <div class="anomaly-badge ${a.severity}">
-          <div class="anomaly-body">
-            <div class="anomaly-type">${a.anomaly_type.replace(/_/g,' ')}</div>
-            <div class="anomaly-desc">${a.description}</div>
-            <div class="anomaly-action">${a.suggested_action}</div>
+    const sorted = [...anomalies].sort((a, b) => {
+      const order = { CRITICAL: 0, WARN: 1, INFO: 2 };
+      return (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+    });
+
+    $anomalyList.innerHTML = sorted.map(a => {
+      const cfg      = SEV_CONFIG[a.severity] || SEV_CONFIG.INFO;
+      const typeName = (a.anomaly_type || '').replace(/_/g, ' ');
+
+      return `
+        <div class="px-4 py-3.5 rounded-xl" style="
+          background:${cfg.bg};
+          border:1px solid rgba(255,255,255,0.05);
+          border:1px solid ${cfg.border};
+        ">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-[10px] font-black uppercase tracking-[0.1em]" style="color:${cfg.color};">${a.severity}</span>
+            <span class="text-[10px] text-white/30 font-bold">·</span>
+            <span class="text-[10px] font-bold text-white/50 uppercase tracking-[0.06em]">${typeName}</span>
           </div>
-        </div>`)
-      .join('');
+          <div class="text-[12px] font-medium leading-relaxed text-white/80">${a.description || ''}</div>
+          ${a.suggested_action ? `<div class="text-[11px] mt-1.5 italic font-medium" style="color:${cfg.color};opacity:0.75;">${a.suggested_action}</div>` : ''}
+        </div>`;
+    }).join('');
   }
 
-  /* ─── Fetch orchestrator ─────────────────────────────────── */
+  /* ──────────────────────────────────────────────────────────
+     RENDER: HEALTH / CAMERA PILLS
+  ────────────────────────────────────────────────────────── */
+
+  function renderHealth(data) {
+    // Overall health pill
+    const status = data?.status ?? 'ok';
+    setHealthPill(status === 'ok' ? 'ok' : 'degraded');
+
+    const cameras = data?.camera_statuses ?? [];
+    if (cameras.length === 0) {
+      $cameraPills.innerHTML = `<span class="text-sm text-white/30">No camera data.</span>`;
+      return;
+    }
+
+    const liveCount  = cameras.filter(c => !c.is_stale).length;
+    const staleCount = cameras.filter(c => c.is_stale).length;
+    $camerasSummary.textContent = `${liveCount} live · ${staleCount} stale`;
+
+    $cameraPills.innerHTML = cameras.map(cam => {
+      const isStale = cam.is_stale;
+      const lag     = cam.lag_seconds != null ? `${Math.round(cam.lag_seconds)}s lag` : 'no data';
+      const dotSvg  = isStale
+        ? `<svg width="6" height="6" viewBox="0 0 6 6" fill="#FF6B6B"><circle cx="3" cy="3" r="3"/></svg>`
+        : `<svg width="6" height="6" viewBox="0 0 6 6"><circle cx="3" cy="3" r="3" fill="#00D68F" class="animate-pulse"/></svg>`;
+      return `
+        <div class="cam-pill ${isStale ? 'stale' : 'live'}" title="${isStale ? 'Stale feed' : 'Live'}">
+          ${dotSvg}
+          <span>${cam.camera_id}</span>
+          <span style="opacity:0.55; font-size:9px; font-weight:500;">${lag}</span>
+        </div>`;
+    }).join('');
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     FETCH HELPERS
+  ────────────────────────────────────────────────────────── */
+
+  /** Fetch JSON from a URL with cache-busting */
   async function fetchJSON(url) {
     const resp = await fetch(url, { cache: 'no-store' });
-    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} — ${url}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${url}`);
     return resp.json();
   }
 
+  /* ──────────────────────────────────────────────────────────
+     MAIN REFRESH CYCLE
+  ────────────────────────────────────────────────────────── */
+
   async function refresh() {
     try {
-      clearError();
-
-      const [metrics, heatmap, anomalies] = await Promise.all([
+      // Fetch all 5 endpoints in parallel
+      const [metrics, funnel, heatmap, anomalyData, health] = await Promise.all([
         fetchJSON(`${API_BASE}/stores/${STORE_ID}/metrics`),
+        fetchJSON(`${API_BASE}/stores/${STORE_ID}/funnel`),
         fetchJSON(`${API_BASE}/stores/${STORE_ID}/heatmap`),
         fetchJSON(`${API_BASE}/stores/${STORE_ID}/anomalies`),
+        fetchJSON(`${API_BASE}/health`),
       ]);
 
-      renderMetrics(metrics);
-      renderZones(heatmap.cells || []);
-      renderAnomalies(anomalies.anomalies || []);
+      // Clear any previous error
+      clearError();
 
-      $lastUpdated.textContent = 'Updated ' + nowStr();
-      $liveDot.className = '';  // green pulse
+      // Render each section
+      renderMetrics(metrics);
+      renderFunnel(funnel);
+      renderHeatmap(heatmap);
+      renderAnomalies(anomalyData?.anomalies ?? []);
+      renderHealth(health);
+
+      // Update timestamp
+      $lastUpdated.textContent = nowStr();
 
     } catch (err) {
-      showError(err.message || 'Failed to reach API');
-      $lastUpdated.textContent = 'Last attempt ' + nowStr();
+      // Show error banner but keep last known data visible
+      const msg = (err && err.message) ? err.message : 'Failed to reach API';
+      showError(msg);
+      $lastUpdated.textContent = `Failed ${nowStr()}`;
     }
   }
 
-  /* ─── Boot ───────────────────────────────────────────────── */
+  /* ──────────────────────────────────────────────────────────
+     SCROLL REVEAL via IntersectionObserver
+  ────────────────────────────────────────────────────────── */
+
+  function initScrollReveal() {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.08 }
+    );
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  }
+
+  /* ──────────────────────────────────────────────────────────
+     BOOT
+  ────────────────────────────────────────────────────────── */
+
+  initScrollReveal();
   refresh();
   setInterval(refresh, REFRESH_MS);
 </script>
