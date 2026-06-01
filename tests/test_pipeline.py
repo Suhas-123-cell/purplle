@@ -1,11 +1,6 @@
 """
 Tests for the CCTV detection pipeline event emitter.
 
-# PROMPT: Write comprehensive tests for a CCTV detection pipeline event emitter.
-# Test: event schema validation, re-entry detection, staff exclusion, group handling,
-#       confidence calibration.
-# CHANGES MADE: Added edge case for zero-confidence events and empty-store periods.
-
 These tests treat the pipeline as a black-box emitter: we feed it visitor-track
 data and assert that the emitted Event objects conform to the expected schema and
 business rules.  Where the pipeline module is imported it is done via a thin
