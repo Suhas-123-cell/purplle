@@ -105,13 +105,6 @@ check_python() {
   log "Python: $(python3 --version)"
 }
 
-maybe_install_deps() {
-  if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
-    log "Checking Python dependencies…"
-    python3 -m pip install -q -r "${SCRIPT_DIR}/requirements.txt" 2>&1 | tail -5 || true
-  fi
-}
-
 run_detect() {
   local video_path="$1"
   local camera_id="$2"

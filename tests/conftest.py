@@ -30,6 +30,13 @@ from app.models import Event, EventMetadata, EventType  # noqa: E402
 # ─────────────────────────────────────────────────────────────────────────────
 
 STORE_ID = "STORE_BLR_002"
+
+
+async def _ingest(client, events: List[dict]) -> dict:
+    """POST events to /events/ingest and return the JSON response."""
+    resp = await client.post("/events/ingest", json={"events": events})
+    assert resp.status_code == 200, f"Ingest failed: {resp.text}"
+    return resp.json()
 BASE_TS = datetime(2026, 4, 10, 11, 0, 0)  # 10-04-2026 11:00:00
 
 

@@ -46,7 +46,7 @@ async def compute_funnel(session: AsyncSession, store_id: str) -> FunnelData:
     def _drop_off(current: int, previous: int) -> float:
         if previous == 0:
             return 0.0
-        return round((1 - current / previous) * 100, 2)
+        return round(max(0.0, (1 - current / previous) * 100), 2)
 
     stages: List[FunnelStage] = [
         FunnelStage(stage="Entry", count=total_entries, drop_off_pct=0.0),

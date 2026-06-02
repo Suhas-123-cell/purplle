@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -62,8 +63,16 @@ logger = logging.getLogger("store_intelligence")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    await init_db()
-    loaded, skipped = await load_pos_from_csv(POS_CSV_PATH)
+    try:
+        await init_db()
+    except Exception:
+        logger.error('{"event": "init_db_failed"}', exc_info=True)
+        raise
+    try:
+        loaded, skipped = await load_pos_from_csv(POS_CSV_PATH)
+    except Exception:
+        logger.error('{"event": "load_pos_failed", "path": "%s"}', POS_CSV_PATH, exc_info=True)
+        raise
     logger.info(
         '{"event": "startup", "pos_loaded": %d, "pos_skipped": %d}', loaded, skipped
     )
@@ -157,6 +166,7 @@ async def ingest_endpoint(
         )
         return result
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -175,6 +185,7 @@ async def store_metrics(
     try:
         return await compute_store_metrics(session, canonical)
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -193,6 +204,7 @@ async def store_funnel(
     try:
         return await compute_funnel(session, canonical)
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -211,6 +223,7 @@ async def store_heatmap(
     try:
         return await compute_heatmap(session, canonical)
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -229,6 +242,7 @@ async def store_anomalies(
     try:
         return await compute_anomalies(session, canonical)
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -243,8 +257,9 @@ async def health_check(
 ) -> HealthResponse:
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
     try:
-        return await compute_health(session, "STORE_BLR_002")
+        return await compute_health(session, CANONICAL_STORE_ID)
     except SQLAlchemyError:
+        logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
 
 
@@ -261,6 +276,19 @@ async def validation_exception_handler(request: Request, exc: ValidationError) -
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    return JSONResponse(
+        status_code=422,
+        content=ErrorResponse(
+            error="validation_error",
+            detail=f"{len(exc.errors())} validation error(s). Check request schema.",
+            trace_id=trace_id,
+        ).model_dump(mode="json"),
+    )
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
@@ -268,6 +296,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
         '{"trace_id": "%s", "event": "unhandled_error", "type": "%s"}',
         trace_id,
         type(exc).__name__,
+        exc_info=True,
     )
     return JSONResponse(
         status_code=500,

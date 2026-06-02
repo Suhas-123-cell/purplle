@@ -30,6 +30,14 @@ async def compute_health(session: AsyncSession, store_id: str) -> HealthResponse
         db_status = "ok"
     except SQLAlchemyError:
         db_status = "unavailable"
+        return HealthResponse(
+            status="degraded",
+            db_status=db_status,
+            store_id=store_id,
+            last_event_ts=None,
+            camera_statuses=[],
+            checked_at=datetime.now(timezone.utc),
+        )
 
     camera_ts_result = await session.execute(
         select(

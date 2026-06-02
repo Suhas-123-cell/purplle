@@ -14,7 +14,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import DefaultDict, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -57,7 +57,7 @@ class VisitorSession:
     exit_time: Optional[datetime] = None
     zones_visited: List[str] = field(default_factory=list)
     zone_entry_times: Dict[str, datetime] = field(default_factory=dict)
-    zone_dwell_ms: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    zone_dwell_ms: DefaultDict[str, int] = field(default_factory=lambda: defaultdict(int))
     is_staff: bool = False
     staff_reason: Optional[str] = None
     is_group_member: bool = False
@@ -112,7 +112,7 @@ def _extract_histogram_feature(frame: np.ndarray, bbox: Tuple[float, float, floa
         return feat
 
     except Exception as exc:  # pragma: no cover
-        logger.debug("Feature extraction failed: %s", exc)
+        logger.warning("Feature extraction failed: %s", exc)
         return np.zeros(48, dtype=np.float32)
 
 
@@ -295,7 +295,7 @@ class VisitorTracker:
 
         if zone_id not in session.zone_entry_times:
             session.zone_entry_times[zone_id] = timestamp
-            session._zone_change_times.append((zone_id, timestamp.timestamp()))
+        session._zone_change_times.append((zone_id, timestamp.timestamp()))
 
         self._evaluate_staff(session)
 

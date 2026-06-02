@@ -10,7 +10,7 @@ Anomaly detection sits behind GET /stores/{id}/anomalies.  These tests:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
@@ -24,8 +24,8 @@ from app.models import (
     EventMetadata,
     EventType,
 )
+from tests.conftest import STORE_ID, _ingest
 
-STORE_ID = "STORE_BLR_002"
 BASE_TS = datetime(2026, 4, 10, 14, 0, 0)
 
 
@@ -62,12 +62,6 @@ def _ev(
             "session_seq": session_seq,
         },
     }
-
-
-async def _ingest(client, events: List[dict]) -> dict:
-    resp = await client.post("/events/ingest", json={"events": events})
-    assert resp.status_code == 200, f"Ingest failed: {resp.text}"
-    return resp.json()
 
 
 def _make_anomaly(
@@ -370,7 +364,7 @@ class TestStaleFeed:
         anomalies list for those cameras.
         """
         # Ingest a fresh event (timestamp in the future relative to BASE_TS)
-        fresh_ts = datetime.utcnow() - timedelta(minutes=2)
+        fresh_ts = datetime.now(timezone.utc) - timedelta(minutes=2)
         recent_event = {
             "event_id": str(uuid.uuid4()),
             "store_id": STORE_ID,

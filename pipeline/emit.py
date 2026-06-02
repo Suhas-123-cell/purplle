@@ -148,7 +148,7 @@ def build_event(
         review_flags.append("LOW_DETECTION_CONFIDENCE")
     if extra_metadata.pop("low_confidence", False):
         review_flags.append("LOW_DETECTION_CONFIDENCE")
-    if extra_metadata.get("ambiguous_reentry"):
+    if extra_metadata.pop("ambiguous_reentry", False):
         review_flags.append("AMBIGUOUS_REENTRY_MATCH")
     if is_staff:
         review_flags.append("STAFF_HEURISTIC")

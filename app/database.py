@@ -1,10 +1,10 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
-from sqlalchemy import String, Integer, Float, Boolean, Text, DateTime, BigInteger, Index
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, BigInteger, Index
 from sqlalchemy.pool import StaticPool
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import AsyncGenerator, Optional
 
 DB_PATH = os.getenv("DB_PATH", "/data/store_intelligence.db")
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
@@ -48,7 +48,10 @@ class EventRow(Base):
     queue_depth: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sku_zone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     session_seq: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    ingested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+    )
 
     __table_args__ = (
         Index("ix_events_store_ts", "store_id", "timestamp"),
@@ -111,6 +114,6 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
