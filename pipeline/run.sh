@@ -98,11 +98,17 @@ log() {
 }
 
 check_python() {
-  if ! command -v python3 &>/dev/null; then
+  # Prefer the project venv if it exists alongside this script or one level up
+  VENV_PYTHON="${SCRIPT_DIR}/../.venv/bin/python"
+  if [[ -x "${VENV_PYTHON}" ]]; then
+    PYTHON="${VENV_PYTHON}"
+  elif command -v python3 &>/dev/null; then
+    PYTHON="python3"
+  else
     log "ERROR: python3 not found in PATH"
     exit 1
   fi
-  log "Python: $(python3 --version)"
+  log "Python: $(${PYTHON} --version) (${PYTHON})"
 }
 
 run_detect() {
@@ -117,7 +123,7 @@ run_detect() {
 
   log "Processing ${camera_id} → ${output_file}"
 
-  python3 "${DETECT_PY}" \
+  ${PYTHON} "${DETECT_PY}" \
     --video        "${video_path}" \
     --camera-id    "${camera_id}" \
     --store-id     "${STORE_ID}" \
