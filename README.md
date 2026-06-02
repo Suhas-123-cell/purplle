@@ -3,7 +3,7 @@
 Real-time and replay-safe CCTV analytics for **STORE_BLR_002 (ST1008)**.  
 Detects visitors, tracks zone dwell, correlates billing visits with POS orders, spots anomalies, and streams metrics to a live dashboard.
 
-## Setup in 5 commands
+## Setup in 6 commands
 
 ```bash
 # 1. Clone the repo
@@ -19,8 +19,11 @@ cp -r /path/to/footage data/footage/
 #    source edits are reflected without rebuilding the images.
 docker compose up -d
 
-# 5. Start the detection pipeline
-cd pipeline && pip install -r requirements.txt && ./run.sh
+# 5. Install pipeline dependencies into the project venv
+.venv/bin/pip install -r pipeline/requirements.txt
+
+# 6. Start the detection pipeline (automatically uses the venv)
+cd pipeline && ./run.sh
 ```
 
 Dashboard is at **http://localhost:3000** · API at **http://localhost:8000**
