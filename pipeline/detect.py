@@ -26,17 +26,15 @@ Usage
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
-import os
 import random
 import sys
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
 
 from emit import EventEmitter, EVENT_ENTRY, EVENT_EXIT, EVENT_ZONE_ENTER, \
     EVENT_ZONE_EXIT, EVENT_ZONE_DWELL, EVENT_BILLING_QUEUE_JOIN, \
@@ -443,143 +441,163 @@ def _run_yolo_detection(
 
     logger.info("Processing %s with YOLO (sample_every=%d)…", video_path, sample_every)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if frame_idx % sample_every != 0:
-            frame_idx += 1
-            continue
+            if frame_idx % sample_every != 0:
+                frame_idx += 1
+                continue
 
-        current_unix_ts = _frame_ts_unix(frame_idx, fps, clip_start_time)
+            current_unix_ts = _frame_ts_unix(frame_idx, fps, clip_start_time)
 
-        # Run YOLO inference
-        results = model.track(frame, persist=True, classes=[PERSON_CLASS_ID], verbose=False)
+            # Run YOLO inference
+            results = model.track(frame, persist=True, classes=[PERSON_CLASS_ID], verbose=False)
 
-        track_ids_in_frame: List[int] = []
-        bboxes_pixel: List[Tuple[float, float, float, float]] = []
-        bboxes_norm: List[Tuple[float, float, float, float]] = []
-        confs: List[float] = []
+            track_ids_in_frame: List[int] = []
+            bboxes_pixel: List[Tuple[float, float, float, float]] = []
+            bboxes_norm: List[Tuple[float, float, float, float]] = []
+            confs: List[float] = []
 
-        if results and results[0].boxes is not None:
-            boxes = results[0].boxes
-            for box in boxes:
-                conf = float(box.conf[0])
-                if conf < MIN_DETECTION_CONF:
-                    continue
-                tid = int(box.id[0]) if box.id is not None else -1
-                x1, y1, x2, y2 = map(float, box.xyxy[0])
-                bboxes_pixel.append((x1, y1, x2, y2))
-                bboxes_norm.append((
-                    x1 / frame_w, y1 / frame_h,
-                    x2 / frame_w, y2 / frame_h,
-                ))
-                track_ids_in_frame.append(tid)
-                confs.append(conf)
-
-        # --- Group detection at entry zone ---
-        if is_entry_camera and len(track_ids_in_frame) >= 2:
-            groups = detect_groups(track_ids_in_frame, bboxes_pixel)
-            for group in groups:
-                group_vis_ids = []
-                for tid in group:
-                    idx = track_ids_in_frame.index(tid)
-                    vid, _ = tracker.assign_visitor_id(
-                        tid, bboxes_norm[idx], frame, current_unix_ts
-                    )
-                    group_vis_ids.append(vid)
-                tracker.mark_group_members(group_vis_ids)
-                for member_vid in group_vis_ids:
-                    if member_vid in entry_emitted:
+            if results and results[0].boxes is not None:
+                boxes = results[0].boxes
+                for box in boxes:
+                    conf = float(box.conf[0])
+                    if conf < MIN_DETECTION_CONF:
                         continue
-                    tracker.record_entry(
-                        member_vid,
-                        _frame_ts_dt(frame_idx, fps, clip_start_time),
-                    )
+                    tid = int(box.id[0]) if box.id is not None else -1
+                    x1, y1, x2, y2 = map(float, box.xyxy[0])
+                    bboxes_pixel.append((x1, y1, x2, y2))
+                    bboxes_norm.append((
+                        x1 / frame_w, y1 / frame_h,
+                        x2 / frame_w, y2 / frame_h,
+                    ))
+                    track_ids_in_frame.append(tid)
+                    confs.append(conf)
+
+            # --- Group detection at entry zone ---
+            if is_entry_camera and len(track_ids_in_frame) >= 2:
+                groups = detect_groups(track_ids_in_frame, bboxes_pixel)
+                for group in groups:
+                    group_vis_ids = []
+                    for tid in group:
+                        idx = track_ids_in_frame.index(tid)
+                        vid, _ = tracker.assign_visitor_id(
+                            tid, bboxes_norm[idx], frame, current_unix_ts
+                        )
+                        group_vis_ids.append(vid)
+                    tracker.mark_group_members(group_vis_ids)
+                    for member_vid in group_vis_ids:
+                        if member_vid in entry_emitted:
+                            continue
+                        tracker.record_entry(
+                            member_vid,
+                            _frame_ts_dt(frame_idx, fps, clip_start_time),
+                        )
+                        ev = emitter.emit_event(
+                            EVENT_ENTRY, camera_id,
+                            visitor_id=member_vid,
+                            frame_number=frame_idx,
+                            zone_id="ENTRY_ZONE",
+                            confidence=confs[track_ids_in_frame.index(group[0])],
+                            group_size=len(group),
+                            group_members=group_vis_ids,
+                            **_review_metadata(tracker.get_session(member_vid) or {}),
+                        )
+                        emitter.print_event(ev)
+                        events.append(ev)
+                        entry_emitted.add(member_vid)
                     ev = emitter.emit_event(
-                        EVENT_ENTRY, camera_id,
-                        visitor_id=member_vid,
+                        EVENT_GROUP_ENTRY, camera_id,
+                        visitor_id=group_vis_ids[0],
                         frame_number=frame_idx,
-                        zone_id="ENTRY_ZONE",
-                        confidence=confs[track_ids_in_frame.index(group[0])],
                         group_size=len(group),
                         group_members=group_vis_ids,
-                        **_review_metadata(tracker.get_session(member_vid) or {}),
+                        zone_id="ENTRY_ZONE",
                     )
                     emitter.print_event(ev)
                     events.append(ev)
-                    entry_emitted.add(member_vid)
-                ev = emitter.emit_event(
-                    EVENT_GROUP_ENTRY, camera_id,
-                    visitor_id=group_vis_ids[0],
-                    frame_number=frame_idx,
-                    group_size=len(group),
-                    group_members=group_vis_ids,
-                    zone_id="ENTRY_ZONE",
+
+            # --- Per-detection processing ---
+            for i, tid in enumerate(track_ids_in_frame):
+                bbox_norm = bboxes_norm[i]
+                bbox_px = bboxes_pixel[i]
+                conf = confs[i]
+                low_conf = conf < LOW_CONFIDENCE_THRESHOLD
+
+                visitor_id, is_reentry = tracker.assign_visitor_id(
+                    tid, bbox_norm, frame, current_unix_ts
                 )
-                emitter.print_event(ev)
-                events.append(ev)
 
-        # --- Per-detection processing ---
-        for i, tid in enumerate(track_ids_in_frame):
-            bbox_norm = bboxes_norm[i]
-            bbox_px = bboxes_pixel[i]
-            conf = confs[i]
-            low_conf = conf < LOW_CONFIDENCE_THRESHOLD
-
-            visitor_id, is_reentry = tracker.assign_visitor_id(
-                tid, bbox_norm, frame, current_unix_ts
-            )
-
-            session = tracker.get_session(visitor_id) or {}
-            is_staff = session.get("is_staff", False)
-            session_seq = session.get("session_seq", 0)
-            reentry_conf = session.get("reentry_match_confidence")
-            ambiguous_reentry = bool(
-                is_reentry and reentry_conf is not None and reentry_conf < 0.85
-            )
-
-            if is_entry_camera and not is_reentry and visitor_id not in entry_emitted:
-                tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
-                ev = emitter.emit_event(
-                    EVENT_ENTRY, camera_id, visitor_id,
-                    frame_number=frame_idx,
-                    zone_id="ENTRY_ZONE",
-                    is_staff=is_staff,
-                    confidence=conf,
-                    session_seq=session_seq,
-                    **_review_metadata(session, low_confidence=low_conf),
+                session = tracker.get_session(visitor_id) or {}
+                is_staff = session.get("is_staff", False)
+                session_seq = session.get("session_seq", 0)
+                reentry_conf = session.get("reentry_match_confidence")
+                ambiguous_reentry = bool(
+                    is_reentry and reentry_conf is not None and reentry_conf < 0.85
                 )
-                emitter.print_event(ev)
-                events.append(ev)
-                entry_emitted.add(visitor_id)
 
-            # --- Re-entry event ---
-            if is_reentry:
-                ev = emitter.emit_event(
-                    EVENT_REENTRY, camera_id, visitor_id,
-                    frame_number=frame_idx,
-                    is_staff=is_staff,
-                    confidence=conf,
-                    session_seq=session_seq,
-                    **_review_metadata(
-                        session,
-                        low_confidence=low_conf,
-                        ambiguous_reentry=ambiguous_reentry,
-                    ),
-                )
-                emitter.print_event(ev)
-                events.append(ev)
+                if is_entry_camera and not is_reentry and visitor_id not in entry_emitted:
+                    tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                    ev = emitter.emit_event(
+                        EVENT_ENTRY, camera_id, visitor_id,
+                        frame_number=frame_idx,
+                        zone_id="ENTRY_ZONE",
+                        is_staff=is_staff,
+                        confidence=conf,
+                        session_seq=session_seq,
+                        **_review_metadata(session, low_confidence=low_conf),
+                    )
+                    emitter.print_event(ev)
+                    events.append(ev)
+                    entry_emitted.add(visitor_id)
 
-            # --- Entry/Exit line crossing ---
-            if line_detector:
-                crossing = line_detector.update(tid, bbox_norm)
-                if crossing == "ENTRY":
-                    if visitor_id not in entry_emitted:
-                        tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                # --- Re-entry event ---
+                if is_reentry:
+                    ev = emitter.emit_event(
+                        EVENT_REENTRY, camera_id, visitor_id,
+                        frame_number=frame_idx,
+                        is_staff=is_staff,
+                        confidence=conf,
+                        session_seq=session_seq,
+                        **_review_metadata(
+                            session,
+                            low_confidence=low_conf,
+                            ambiguous_reentry=ambiguous_reentry,
+                        ),
+                    )
+                    emitter.print_event(ev)
+                    events.append(ev)
+
+                # --- Entry/Exit line crossing ---
+                if line_detector:
+                    crossing = line_detector.update(tid, bbox_norm)
+                    if crossing == "ENTRY":
+                        if visitor_id not in entry_emitted:
+                            tracker.record_entry(visitor_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                            ev = emitter.emit_event(
+                                EVENT_ENTRY, camera_id, visitor_id,
+                                frame_number=frame_idx,
+                                zone_id="ENTRY_ZONE",
+                                is_staff=is_staff,
+                                confidence=conf,
+                                session_seq=session_seq,
+                                **_review_metadata(session, low_confidence=low_conf),
+                            )
+                            emitter.print_event(ev)
+                            events.append(ev)
+                            entry_emitted.add(visitor_id)
+
+                    elif crossing == "EXIT":
+                        tracker.record_exit(
+                            visitor_id,
+                            _frame_ts_dt(frame_idx, fps, clip_start_time),
+                            track_id=tid,
+                        )
                         ev = emitter.emit_event(
-                            EVENT_ENTRY, camera_id, visitor_id,
+                            EVENT_EXIT, camera_id, visitor_id,
                             frame_number=frame_idx,
                             zone_id="ENTRY_ZONE",
                             is_staff=is_staff,
@@ -589,75 +607,85 @@ def _run_yolo_detection(
                         )
                         emitter.print_event(ev)
                         events.append(ev)
-                        entry_emitted.add(visitor_id)
 
-                elif crossing == "EXIT":
-                    tracker.record_exit(
-                        visitor_id,
-                        _frame_ts_dt(frame_idx, fps, clip_start_time),
-                        track_id=tid,
-                    )
-                    ev = emitter.emit_event(
-                        EVENT_EXIT, camera_id, visitor_id,
-                        frame_number=frame_idx,
-                        zone_id="ENTRY_ZONE",
-                        is_staff=is_staff,
-                        confidence=conf,
-                        session_seq=session_seq,
-                        **_review_metadata(session, low_confidence=low_conf),
-                    )
-                    emitter.print_event(ev)
-                    events.append(ev)
+                # --- Zone classification ---
+                quadrant = _bbox_to_quadrant(bbox_px, frame_w, frame_h)
+                zone_id = quadrant_map.get(quadrant, "UNKNOWN")
+                prev_zone = active_zones.get(visitor_id)
 
-            # --- Zone classification ---
-            quadrant = _bbox_to_quadrant(bbox_px, frame_w, frame_h)
-            zone_id = quadrant_map.get(quadrant, "UNKNOWN")
-            prev_zone = active_zones.get(visitor_id)
-
-            if prev_zone != zone_id:
-                # Zone exit
-                if prev_zone:
-                    final_dwell = dwell_tracker.remove(visitor_id, current_unix_ts)
-                    if final_dwell and final_dwell > 1000:
+                if prev_zone != zone_id:
+                    # Zone exit
+                    if prev_zone:
+                        final_dwell = dwell_tracker.remove(visitor_id, current_unix_ts)
+                        if final_dwell and final_dwell > 1000:
+                            ev = emitter.emit_event(
+                                EVENT_ZONE_DWELL, camera_id, visitor_id,
+                                frame_number=frame_idx,
+                                zone_id=prev_zone,
+                                dwell_ms=final_dwell,
+                                is_staff=is_staff,
+                                confidence=conf,
+                                **_review_metadata(session, low_confidence=low_conf),
+                            )
+                            emitter.print_event(ev)
+                            events.append(ev)
                         ev = emitter.emit_event(
-                            EVENT_ZONE_DWELL, camera_id, visitor_id,
+                            EVENT_ZONE_EXIT, camera_id, visitor_id,
                             frame_number=frame_idx,
                             zone_id=prev_zone,
-                            dwell_ms=final_dwell,
                             is_staff=is_staff,
                             confidence=conf,
                             **_review_metadata(session, low_confidence=low_conf),
                         )
                         emitter.print_event(ev)
                         events.append(ev)
-                    ev = emitter.emit_event(
-                        EVENT_ZONE_EXIT, camera_id, visitor_id,
-                        frame_number=frame_idx,
-                        zone_id=prev_zone,
-                        is_staff=is_staff,
-                        confidence=conf,
-                        **_review_metadata(session, low_confidence=low_conf),
-                    )
-                    emitter.print_event(ev)
-                    events.append(ev)
-                    if prev_zone == billing_zone_id:
-                        billing_tracker.exit(visitor_id)
+                        if prev_zone == billing_zone_id:
+                            billing_tracker.exit(visitor_id)
 
-                # Zone enter
-                active_zones[visitor_id] = zone_id
-                tracker.record_zone(visitor_id, zone_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
-                session = tracker.get_session(visitor_id) or session
-                is_staff = session.get("is_staff", False)
-                session_seq = session.get("session_seq", session_seq)
-                queue_depth = billing_tracker.queue_depth
+                    # Zone enter
+                    active_zones[visitor_id] = zone_id
+                    tracker.record_zone(visitor_id, zone_id, _frame_ts_dt(frame_idx, fps, clip_start_time))
+                    session = tracker.get_session(visitor_id) or session
+                    is_staff = session.get("is_staff", False)
+                    session_seq = session.get("session_seq", session_seq)
+                    queue_depth = billing_tracker.queue_depth
 
-                if zone_id == billing_zone_id:
-                    depth = billing_tracker.enter(visitor_id, current_unix_ts)
+                    if zone_id == billing_zone_id:
+                        depth = billing_tracker.enter(visitor_id, current_unix_ts)
+                        ev = emitter.emit_event(
+                            EVENT_BILLING_QUEUE_JOIN, camera_id, visitor_id,
+                            frame_number=frame_idx,
+                            zone_id=zone_id,
+                            queue_depth=depth,
+                            is_staff=is_staff,
+                            confidence=conf,
+                            session_seq=session_seq,
+                            **_review_metadata(session, low_confidence=low_conf),
+                        )
+                        emitter.print_event(ev)
+                        events.append(ev)
+                    else:
+                        ev = emitter.emit_event(
+                            EVENT_ZONE_ENTER, camera_id, visitor_id,
+                            frame_number=frame_idx,
+                            zone_id=zone_id,
+                            queue_depth=queue_depth,
+                            is_staff=is_staff,
+                            confidence=conf,
+                            session_seq=session_seq,
+                            **_review_metadata(session, low_confidence=low_conf),
+                        )
+                        emitter.print_event(ev)
+                        events.append(ev)
+
+                # --- Dwell interval check ---
+                dwell_ms = dwell_tracker.update(visitor_id, zone_id, current_unix_ts)
+                if dwell_ms is not None:
                     ev = emitter.emit_event(
-                        EVENT_BILLING_QUEUE_JOIN, camera_id, visitor_id,
+                        EVENT_ZONE_DWELL, camera_id, visitor_id,
                         frame_number=frame_idx,
                         zone_id=zone_id,
-                        queue_depth=depth,
+                        dwell_ms=dwell_ms,
                         is_staff=is_staff,
                         confidence=conf,
                         session_seq=session_seq,
@@ -665,59 +693,31 @@ def _run_yolo_detection(
                     )
                     emitter.print_event(ev)
                     events.append(ev)
-                else:
+
+            # --- Billing queue abandonment check (every 60 frames) ---
+            if frame_idx % (sample_every * 60) == 0:
+                abandoned = billing_tracker.check_abandonments(current_unix_ts)
+                for vid in abandoned:
                     ev = emitter.emit_event(
-                        EVENT_ZONE_ENTER, camera_id, visitor_id,
+                        EVENT_BILLING_QUEUE_ABANDON, camera_id, vid,
                         frame_number=frame_idx,
-                        zone_id=zone_id,
-                        queue_depth=queue_depth,
-                        is_staff=is_staff,
-                        confidence=conf,
-                        session_seq=session_seq,
-                        **_review_metadata(session, low_confidence=low_conf),
+                        zone_id=billing_zone_id,
+                        queue_depth=billing_tracker.queue_depth,
+                        is_staff=False,
+                        confidence=0.9,
                     )
                     emitter.print_event(ev)
                     events.append(ev)
 
-            # --- Dwell interval check ---
-            dwell_ms = dwell_tracker.update(visitor_id, zone_id, current_unix_ts)
-            if dwell_ms is not None:
-                ev = emitter.emit_event(
-                    EVENT_ZONE_DWELL, camera_id, visitor_id,
-                    frame_number=frame_idx,
-                    zone_id=zone_id,
-                    dwell_ms=dwell_ms,
-                    is_staff=is_staff,
-                    confidence=conf,
-                    session_seq=session_seq,
-                    **_review_metadata(session, low_confidence=low_conf),
-                )
-                emitter.print_event(ev)
-                events.append(ev)
+            # --- Release stale tracks ---
+            released = tracker.release_stale_tracks(current_unix_ts, timeout=15.0)
+            for vid in released:
+                active_zones.pop(vid, None)
 
-        # --- Billing queue abandonment check (every 60 frames) ---
-        if frame_idx % (sample_every * 60) == 0:
-            abandoned = billing_tracker.check_abandonments(current_unix_ts)
-            for vid in abandoned:
-                ev = emitter.emit_event(
-                    EVENT_BILLING_QUEUE_ABANDON, camera_id, vid,
-                    frame_number=frame_idx,
-                    zone_id=billing_zone_id,
-                    queue_depth=billing_tracker.queue_depth,
-                    is_staff=False,
-                    confidence=0.9,
-                )
-                emitter.print_event(ev)
-                events.append(ev)
+            frame_idx += 1
+    finally:
+        cap.release()
 
-        # --- Release stale tracks ---
-        released = tracker.release_stale_tracks(current_unix_ts, timeout=15.0)
-        for vid in released:
-            active_zones.pop(vid, None)
-
-        frame_idx += 1
-
-    cap.release()
     logger.info("Finished processing %s. Total events: %d", video_path, len(events))
     return events
 
@@ -749,7 +749,6 @@ def _run_mock_detection(
 
     # Determine camera role
     is_entry_cam = "ENTRY" in camera_id
-    is_billing_cam = "BILLING" in camera_id
 
     # Zones associated with this camera
     cam_zones = [z["id"] for z in layout.get("zones", []) if z.get("camera") == camera_id]
@@ -769,7 +768,6 @@ def _run_mock_detection(
 
     visitor_pool: List[str] = []
     for _ in range(n_visitors):
-        import hashlib
         seed = f"{camera_id}_{rng.random()}"
         vid = "VIS_" + hashlib.sha256(seed.encode()).hexdigest()[:8].upper()
         visitor_pool.append(vid)
@@ -910,10 +908,15 @@ def _simulate_arrivals(
 # Timestamp helpers (used inside detection loop)
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=4)
+def _parse_clip_start(clip_start_time: str) -> datetime:
+    """Parse and cache clip start time string to avoid repeated re-parsing."""
+    return datetime.fromisoformat(clip_start_time.replace("Z", "+00:00"))
+
+
 def _frame_ts_unix(frame_idx: int, fps: float, clip_start_time: str) -> float:
     """Return Unix timestamp for a frame index."""
-    start_dt = datetime.fromisoformat(clip_start_time.replace("Z", "+00:00"))
-    return start_dt.timestamp() + frame_idx / fps
+    return _parse_clip_start(clip_start_time).timestamp() + frame_idx / fps
 
 
 def _frame_ts_dt(frame_idx: int, fps: float, clip_start_time: str) -> datetime:

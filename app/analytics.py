@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
-from sqlalchemy import and_, distinct, func, select
+import logging
+
+from sqlalchemy import Date, and_, cast, distinct, func, select
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -118,12 +122,16 @@ async def get_purchase_visitors(
     if converters:
         return converters
 
+    logger.warning(
+        '{"event": "pos_fallback", "store_id": "%s", "reason": "no_matching_timestamps"}',
+        store_id,
+    )
     data_now = reference_now or await get_reference_now(session, store_id)
     pos_day_count = await session.scalar(
         select(func.count(distinct(POSTransaction.order_id))).where(
             and_(
                 POSTransaction.store_id == store_id,
-                func.date(POSTransaction.transaction_ts) == str(data_now.date()),
+                func.date(POSTransaction.transaction_ts) == cast(data_now.date(), Date),
             )
         )
     ) or 0

@@ -31,6 +31,20 @@ def normalize_store_id(raw: str) -> str:
     return raw
 
 
+def _safe_float(val: str) -> float | None:
+    try:
+        return float(val.strip()) if val.strip() else None
+    except ValueError:
+        return None
+
+
+def _safe_int(val: str) -> int | None:
+    try:
+        return int(float(val.strip())) if val.strip() else None
+    except ValueError:
+        return None
+
+
 def _parse_pos_timestamp(date_str: str, time_str: str) -> datetime | None:
     try:
         combined = f"{date_str.strip()} {time_str.strip()}"
@@ -70,18 +84,6 @@ async def load_pos_from_csv(csv_path: str) -> Tuple[int, int]:
                     row.get("order_date", ""), row.get("order_time", "")
                 )
 
-                def _safe_float(val: str) -> float | None:
-                    try:
-                        return float(val.strip()) if val.strip() else None
-                    except ValueError:
-                        return None
-
-                def _safe_int(val: str) -> int | None:
-                    try:
-                        return int(float(val.strip())) if val.strip() else None
-                    except ValueError:
-                        return None
-
                 raw_store_id = row.get("store_id", "").strip()
 
                 txn = POSTransaction(
@@ -109,15 +111,25 @@ async def load_pos_from_csv(csv_path: str) -> Tuple[int, int]:
                 batch.append(txn)
 
                 if len(batch) >= 500:
-                    session.add_all(batch)
-                    await session.commit()
-                    loaded += len(batch)
+                    try:
+                        session.add_all(batch)
+                        await session.commit()
+                        loaded += len(batch)
+                    except Exception:
+                        await session.rollback()
+                        logger.error('{"event": "pos_csv_batch_failed"}', exc_info=True)
+                        raise
                     batch = []
 
             if batch:
-                session.add_all(batch)
-                await session.commit()
-                loaded += len(batch)
+                try:
+                    session.add_all(batch)
+                    await session.commit()
+                    loaded += len(batch)
+                except Exception:
+                    await session.rollback()
+                    logger.error('{"event": "pos_csv_batch_failed"}', exc_info=True)
+                    raise
 
     logger.info("POS load complete: %d loaded, %d skipped", loaded, skipped)
     return loaded, skipped
@@ -179,48 +191,40 @@ async def ingest_events(events: List[Event]) -> IngestResponse:
     valid_events: List[Event] = []
 
     for ev in events:
-        try:
-            ev.store_id = normalize_store_id(ev.store_id)
-            valid_events.append(ev)
-        except IntegrityError:
-            errors.append({"event_id": getattr(ev, "event_id", None), "reason": "duplicate_event"})
-        except Exception:
-            logger.exception("Ingest error for event %s", getattr(ev, "event_id", None))
-            errors.append({"event_id": getattr(ev, "event_id", None), "reason": "processing_error"})
+        ev.store_id = normalize_store_id(ev.store_id)
+        valid_events.append(ev)
 
     async with AsyncSessionLocal() as session:
-        for ev in valid_events:
-            try:
-                row = EventRow(
-                    event_id=ev.event_id,
-                    store_id=ev.store_id,
-                    camera_id=ev.camera_id,
-                    visitor_id=ev.visitor_id,
-                    event_type=ev.event_type.value,
-                    timestamp=ev.timestamp,
-                    zone_id=ev.zone_id,
-                    dwell_ms=ev.dwell_ms,
-                    is_staff=ev.is_staff,
-                    confidence=ev.confidence,
-                    queue_depth=ev.metadata.queue_depth,
-                    sku_zone=ev.metadata.sku_zone,
-                    session_seq=ev.metadata.session_seq,
-                    ingested_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.flush()
-                await _upsert_visitor_session(session, ev, ev.store_id)
-                await session.commit()
-                accepted += 1
-            except IntegrityError:
-                await session.rollback()
-                duplicate += 1
-                errors.append({"event_id": ev.event_id, "reason": "duplicate_event"})
-            except Exception:
-                await session.rollback()
-                rejected += 1
-                logger.exception("Ingest error for event %s", ev.event_id)
-                errors.append({"event_id": ev.event_id, "reason": "processing_error"})
+        async with session.begin():
+            for ev in valid_events:
+                try:
+                    row = EventRow(
+                        event_id=ev.event_id,
+                        store_id=ev.store_id,
+                        camera_id=ev.camera_id,
+                        visitor_id=ev.visitor_id,
+                        event_type=ev.event_type.value,
+                        timestamp=ev.timestamp,
+                        zone_id=ev.zone_id,
+                        dwell_ms=ev.dwell_ms,
+                        is_staff=ev.is_staff,
+                        confidence=ev.confidence,
+                        queue_depth=ev.metadata.queue_depth,
+                        sku_zone=ev.metadata.sku_zone,
+                        session_seq=ev.metadata.session_seq,
+                        ingested_at=datetime.now(timezone.utc),
+                    )
+                    async with session.begin_nested():  # savepoint per row
+                        session.add(row)
+                        await _upsert_visitor_session(session, ev, ev.store_id)
+                    accepted += 1
+                except IntegrityError:
+                    duplicate += 1
+                    errors.append({"event_id": ev.event_id, "reason": "duplicate_event"})
+                except Exception:
+                    rejected += 1
+                    logger.exception("Ingest error for event %s", ev.event_id)
+                    errors.append({"event_id": ev.event_id, "reason": "processing_error"})
 
     return IngestResponse(
         accepted=accepted,

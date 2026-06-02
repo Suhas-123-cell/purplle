@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -22,14 +22,14 @@ class EventType(str, Enum):
 
 class EventMetadata(BaseModel):
     queue_depth: Optional[int] = Field(default=None, ge=0)
-    sku_zone: Optional[str] = None
+    sku_zone: Optional[str] = Field(default=None, max_length=64)
     session_seq: Optional[int] = Field(default=None, ge=0)
     review_required: bool = False
-    review_flags: List[str] = Field(default_factory=list)
+    review_flags: List[Annotated[str, Field(max_length=128)]] = Field(default_factory=list, max_length=20)
     confidence_bucket: Optional[str] = None
-    confidence_reason: Optional[str] = None
+    confidence_reason: Optional[str] = Field(default=None, max_length=256)
     reentry_match_confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    staff_reason: Optional[str] = None
+    staff_reason: Optional[str] = Field(default=None, max_length=256)
 
     model_config = {"extra": "ignore"}
 
@@ -158,16 +158,16 @@ class AnomalyData(BaseModel):
 
 class CameraStatus(BaseModel):
     camera_id: str
-    last_event_ts: Optional[datetime]
+    last_event_ts: Optional[datetime] = None
     is_stale: bool
-    lag_seconds: Optional[float]
+    lag_seconds: Optional[float] = None
 
 
 class HealthResponse(BaseModel):
     status: str
     db_status: str
     store_id: str
-    last_event_ts: Optional[datetime]
+    last_event_ts: Optional[datetime] = None
     camera_statuses: List[CameraStatus]
     checked_at: datetime
 

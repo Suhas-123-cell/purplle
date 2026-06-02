@@ -14,8 +14,8 @@ from typing import List
 import pytest
 
 from app.models import Event, EventMetadata, EventType
+from tests.conftest import STORE_ID, _ingest
 
-STORE_ID = "STORE_BLR_002"
 BASE_TS = datetime(2026, 4, 10, 14, 0, 0)
 
 
@@ -54,13 +54,6 @@ def _ev(
             "session_seq": session_seq,
         },
     }
-
-
-async def _ingest(client, events: List[dict]) -> dict:
-    """POST events to /events/ingest and return the JSON response."""
-    resp = await client.post("/events/ingest", json={"events": events})
-    assert resp.status_code == 200, f"Ingest failed: {resp.text}"
-    return resp.json()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

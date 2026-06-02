@@ -9,16 +9,18 @@ are not present (CI environment without GPU/weights uses mocks).
 """
 from __future__ import annotations
 
-import uuid
 import sys
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import List
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+# Must be set before any import that transitively imports requests
+sys.modules.setdefault("requests", MagicMock())
 
 import pytest
 
 from app.models import Event, EventMetadata, EventType
-sys.modules.setdefault("requests", MagicMock())
 from pipeline.emit import build_event
 
 
@@ -524,7 +526,7 @@ class TestEmptyStorePeriod:
         # without a known last-event timestamp.
         last_event_ts: datetime | None = None
         is_stale_feed = last_event_ts is not None and (
-            datetime.utcnow() - last_event_ts
+            datetime.now(timezone.utc) - last_event_ts
         ).total_seconds() > 600
         # With no prior events, stale check does not trigger
         assert not is_stale_feed

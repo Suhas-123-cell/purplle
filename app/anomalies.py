@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List
 
 from sqlalchemy import and_, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,19 +15,22 @@ except ImportError:  # pragma: no cover - used when uvicorn imports main.py dire
     from models import Anomaly, AnomalyData, AnomalyType, Severity
 
 
+_STALE_WARN_SECONDS = 600    # 10 min
+_STALE_CRITICAL_SECONDS = 1200  # 20 min
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def _check_billing_queue_spike(
-    session: AsyncSession, store_id: str
+    session: AsyncSession, store_id: str, now: datetime
 ) -> Anomaly | None:
     current_depth = len(await get_current_queue_visitors(session, store_id))
 
     # 7-day average queue depth — approximate via daily JOIN counts.
     # Use data-anchored reference time so historical/replay data is evaluated
     # relative to the data's own "now", not the system clock.
-    now = await get_reference_now(session, store_id)
     seven_days_ago = now - timedelta(days=7)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -108,12 +110,11 @@ async def _check_billing_queue_spike(
 
 
 async def _check_conversion_drop(
-    session: AsyncSession, store_id: str
+    session: AsyncSession, store_id: str, now: datetime
 ) -> Anomaly | None:
     # Use data-anchored reference time so the "today" window aligns with the
     # date of the actual data rather than the current system date (June 1 vs
     # April 10).
-    now = await get_reference_now(session, store_id)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     async def _day_conversion(day_start: datetime, day_end: datetime) -> float:
@@ -143,7 +144,7 @@ async def _check_conversion_drop(
 
     today_conversion = await _day_conversion(today_start, now)
 
-    historical_rates: List[float] = []
+    historical_rates: list[float] = []
     for days_back in range(1, 8):
         d_start = today_start - timedelta(days=days_back)
         d_end = d_start.replace(hour=23, minute=59, second=59)
@@ -185,12 +186,11 @@ async def _check_conversion_drop(
 
 
 async def _check_dead_zones(
-    session: AsyncSession, store_id: str
-) -> List[Anomaly]:
+    session: AsyncSession, store_id: str, now: datetime
+) -> list[Anomaly]:
     # Use data-anchored reference time so the 24h active-zone window and the
     # 30-minute dead-zone cutoff are computed relative to the data's own "now",
     # not the system clock (which would find zero activity from April data).
-    now = await get_reference_now(session, store_id)
     cutoff = now - timedelta(minutes=30)
 
     # Find all zones active in the last 24h
@@ -206,18 +206,23 @@ async def _check_dead_zones(
     )
     all_zones = {row[0] for row in active_zones_result.fetchall()}
 
-    anomalies: List[Anomaly] = []
-    for zone_id in all_zones:
-        last_visit = await session.scalar(
-            select(func.max(EventRow.timestamp)).where(
-                and_(
-                    EventRow.store_id == store_id,
-                    EventRow.zone_id == zone_id,
-                    EventRow.event_type.in_(["ZONE_ENTER", "ZONE_DWELL"]),
-                )
+    zone_last_ts_result = await session.execute(
+        select(EventRow.zone_id, func.max(EventRow.timestamp).label("last_ts"))
+        .where(
+            and_(
+                EventRow.store_id == store_id,
+                EventRow.zone_id.in_(all_zones),
+                EventRow.event_type.in_(["ZONE_ENTER", "ZONE_DWELL"]),
             )
         )
-        if last_visit and last_visit < cutoff:
+        .group_by(EventRow.zone_id)
+    )
+    zone_last_ts = {row.zone_id: row.last_ts for row in zone_last_ts_result.fetchall()}
+
+    anomalies: list[Anomaly] = []
+    for zone_id in all_zones:
+        last_visit = zone_last_ts.get(zone_id)
+        if last_visit is None or last_visit < cutoff:
             idle_minutes = (now - last_visit).total_seconds() / 60
             anomalies.append(
                 Anomaly(
@@ -240,12 +245,11 @@ async def _check_dead_zones(
 
 
 async def _check_stale_feeds(
-    session: AsyncSession, store_id: str
-) -> List[Anomaly]:
+    session: AsyncSession, store_id: str, now: datetime
+) -> list[Anomaly]:
     # Use the latest event timestamp as reference so historical/replay data
     # is not treated as stale relative to the wall-clock system time.
-    now = await get_reference_now(session, store_id)
-    cutoff = now - timedelta(minutes=10)
+    cutoff = now - timedelta(seconds=_STALE_WARN_SECONDS)
 
     camera_last_ts = await session.execute(
         select(EventRow.camera_id, func.max(EventRow.timestamp).label("last_ts")).where(
@@ -257,7 +261,7 @@ async def _check_stale_feeds(
     for camera_id, last_ts in camera_last_ts.fetchall():
         if last_ts and last_ts < cutoff:
             lag_seconds = (now - last_ts).total_seconds()
-            severity = Severity.CRITICAL if lag_seconds > 600 else Severity.WARN
+            severity = Severity.CRITICAL if lag_seconds > _STALE_CRITICAL_SECONDS else Severity.WARN
             anomalies.append(
                 Anomaly(
                     anomaly_type=AnomalyType.STALE_FEED,
@@ -270,7 +274,7 @@ async def _check_stale_feeds(
                         f"Verify network connectivity and health of camera '{camera_id}'. "
                         "Check edge device logs."
                     ),
-                    detected_at=_now(),
+                    detected_at=now,
                     context={
                         "camera_id": camera_id,
                         "last_event_ts": last_ts.isoformat() if last_ts else None,
@@ -282,20 +286,21 @@ async def _check_stale_feeds(
 
 
 async def compute_anomalies(session: AsyncSession, store_id: str) -> AnomalyData:
-    anomalies: List[Anomaly] = []
+    reference_now = await get_reference_now(session, store_id)
+    anomalies: list[Anomaly] = []
 
-    queue_spike = await _check_billing_queue_spike(session, store_id)
+    queue_spike = await _check_billing_queue_spike(session, store_id, reference_now)
     if queue_spike:
         anomalies.append(queue_spike)
 
-    conv_drop = await _check_conversion_drop(session, store_id)
+    conv_drop = await _check_conversion_drop(session, store_id, reference_now)
     if conv_drop:
         anomalies.append(conv_drop)
 
-    dead_zones = await _check_dead_zones(session, store_id)
+    dead_zones = await _check_dead_zones(session, store_id, reference_now)
     anomalies.extend(dead_zones)
 
-    stale_feeds = await _check_stale_feeds(session, store_id)
+    stale_feeds = await _check_stale_feeds(session, store_id, reference_now)
     anomalies.extend(stale_feeds)
 
     # Sort: CRITICAL first, then WARN, then INFO
@@ -304,6 +309,6 @@ async def compute_anomalies(session: AsyncSession, store_id: str) -> AnomalyData
 
     return AnomalyData(
         store_id=store_id,
-        as_of=await get_reference_now(session, store_id),
+        as_of=reference_now,
         anomalies=anomalies,
     )
