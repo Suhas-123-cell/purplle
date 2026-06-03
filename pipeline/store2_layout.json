@@ -1,0 +1,20 @@
+{
+  "store_id": "STORE_2",
+  "store_name": "Purplle Store 2",
+  "alt_id": "ST2",
+  "zones": [
+    {"id": "ENTRY_ZONE",         "name": "Main Entrance",       "camera": "CAM_ENTRY_01",   "type": "entry"},
+    {"id": "ENTRY_ZONE_2",       "name": "Side Entry",          "camera": "CAM_ENTRY_02",   "type": "entry"},
+    {"id": "WALL_UNITS_LEFT",    "name": "Left Wall Units",     "camera": "CAM_ZONE_01",    "type": "product"},
+    {"id": "FOH",                "name": "Front of House",      "camera": "CAM_ZONE_01",    "type": "floor"},
+    {"id": "WALL_UNITS_RIGHT",   "name": "Right Wall Units",    "camera": "CAM_ZONE_01",    "type": "product"},
+    {"id": "BILLING",            "name": "Cash Counter",        "camera": "CAM_BILLING_01", "type": "billing"}
+  ],
+  "camera_mapping": {
+    "entry 1":      "CAM_ENTRY_01",
+    "entry 2":      "CAM_ENTRY_02",
+    "zone":         "CAM_ZONE_01",
+    "billing_area": "CAM_BILLING_01"
+  },
+  "open_hours": {"open": "10:00", "close": "22:00"}
+}

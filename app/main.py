@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -122,15 +123,12 @@ async def structured_logging_middleware(request: Request, call_next) -> Response
     return response
 
 
-_ALLOWED_STORES = {CANONICAL_STORE_ID}
+_STORE_ID_RE = re.compile(r'^[\w\-]+$')
 
 def _validate_store(store_id: str) -> str:
-    if len(store_id) > 64:
+    if not store_id or len(store_id) > 64 or not _STORE_ID_RE.match(store_id):
         raise HTTPException(status_code=400, detail="Invalid store_id")
-    normalized = normalize_store_id(store_id)
-    if normalized not in _ALLOWED_STORES:
-        raise HTTPException(status_code=404, detail="Store not found")
-    return normalized
+    return normalize_store_id(store_id)
 
 
 def _db_error_response(trace_id: str) -> JSONResponse:
@@ -253,11 +251,13 @@ async def store_anomalies(
 )
 async def health_check(
     request: Request,
+    store_id: str = CANONICAL_STORE_ID,
     session: AsyncSession = Depends(get_session),
 ) -> HealthResponse:
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
+    canonical = _validate_store(store_id)
     try:
-        return await compute_health(session, CANONICAL_STORE_ID)
+        return await compute_health(session, canonical)
     except SQLAlchemyError:
         logger.error('{"trace_id": "%s", "event": "db_error"}', trace_id, exc_info=True)
         return _db_error_response(trace_id)
