@@ -51,3 +51,39 @@ The visitor base also intentionally uses distinct non-staff visitors from presen
 The problem statement requires conversion by matching visitors in the billing zone during the five minutes before a POS transaction. That is the primary path. The provided replay events, however, can be compressed into a short camera interval while POS keeps full store-day wall-clock timestamps. When no five-minute overlap exists, the API falls back to same-day POS correlation capped by distinct billing-queue visitors.
 
 This is a conservative fallback: it never produces more converted visitors than observed billing visitors, so conversion remains session-based and bounded. The validation script prints both CCTV and POS ranges so this assumption is visible to reviewers instead of hidden in the code.
+
+---
+
+## 6. Multi-store architecture: alias map over hardcoded allowlist
+
+The original ingestion layer validated incoming `store_id` values against `_ALLOWED_STORES`, a hardcoded Python set. Adding a new store meant editing application code and redeploying. This was fine for a single-store submission but did not scale.
+
+The replacement is a two-part approach. First, a lightweight format check rejects obviously malformed IDs (empty string, wrong type). Second, `_ALIAS_MAP` — a dictionary mapping short aliases to canonical IDs — normalises the identifier before any database write:
+
+```
+_ALIAS_MAP = {
+    "ST1008":     "STORE_BLR_002",
+    "ST1":        "STORE_1",
+    "ST2":        "STORE_2",
+}
+```
+
+Any store ID not in the alias map is accepted as its own canonical form as soon as its first event arrives. New stores therefore require zero application changes — they are admitted automatically once the pipeline starts sending events. If a short alias is also needed, a single dict entry is added, which is a configuration-level change rather than a logic change.
+
+This also solves a cross-source join problem: the POS CSV for Store 1 uses `ST1` while the camera system emits `STORE_1`. `_ALIAS_MAP` ensures both map to the same canonical key before any row is written, so aggregation queries never need to handle synonyms.
+
+---
+
+## 7. Offline schema validator (validate_schema.py)
+
+Each store's pipeline produces event JSON files in `data/events/` before they are POSTed to the API. Bugs in `emit.py` or the layout mapping can produce structurally valid JSON that still violates the event contract — a non-UUID `event_id`, a timestamp in the wrong format, a confidence value outside `[0, 1]`, or a zone event missing `zone_id`.
+
+`pipeline/validate_schema.py` runs entirely offline against the files in `data/events/` and checks:
+
+- **UUID v4 `event_id`** — regex match against the canonical UUID v4 pattern; catches sequential IDs or hash-based IDs that slip through.
+- **ISO-8601 timestamps** — `datetime.fromisoformat` parse; catches Unix epoch integers, missing timezone offsets, and truncated strings.
+- **Confidence range** — must be in `[0.0, 1.0]`; catches un-normalised detector scores (e.g. raw logits).
+- **`zone_id` presence** — required for all zone-related event types (`ZONE_ENTER`, `ZONE_DWELL`, `ZONE_EXIT`); catches events where the layout mapping failed silently.
+- **No duplicate `event_id`s** — accumulates all IDs across the full events directory and reports any collision; catches pipeline restarts that regenerate the same UUID.
+
+Running the validator before `./run.sh` (or its store variants) catches pipeline bugs before they reach the API, where a duplicate `event_id` would silently be counted as a deduplicated event and a missing `zone_id` would cause a zone-level query to return zero results. The offline check costs nothing at ingest time and makes the pipeline's output independently auditable.

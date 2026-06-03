@@ -4,8 +4,10 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        STORE FLOOR                              │
-│  CAM_ENTRY_01  CAM_FLOOR_01  CAM_FLOOR_02  CAM_BILLING_01      │
+│            STORE FLOORS  (3 stores)                             │
+│  STORE_BLR_002          STORE_1              STORE_2            │
+│  store_layout.json      store1_layout.json   store2_layout.json │
+│  CAM_ENTRY_01 …         CAM_S1_ENTRY_01 …   CAM_S2_ENTRY_01 …  │
 └────────┬───────────┬──────────────┬───────────────┬────────────┘
          │  RTSP     │              │               │
          ▼           ▼              ▼               ▼
@@ -13,6 +15,8 @@
 │                   pipeline/detect.py                         │
 │   YOLOv8n  ──►  ByteTrack  ──►  VisitorTracker (emit.py)    │
 │   (bounding boxes)  (stable IDs)   (zone mapping + events)  │
+│                                                              │
+│   run.sh  ·  run_store1.sh  ·  run_store2.sh                │
 └────────────────────────┬─────────────────────────────────────┘
                          │  HTTP POST /events/ingest
                          │  (batches ≤ 500 events, JSON)
@@ -33,6 +37,7 @@
                          ▼
               dashboard/index.html
               (vanilla JS operations console)
+              store switcher dropdown — switches all 5 API calls live
 ```
 
 ## Component descriptions
@@ -43,7 +48,7 @@
 
 `tracker.py` wraps **ByteTrack**, a multi-object tracking algorithm that handles occlusion by maintaining a two-stage buffer: high-confidence detections update existing tracks immediately; low-confidence ones are held until a matching high-confidence detection confirms them in a later frame. This means a person briefly obscured by a shelf does not cause a spurious EXIT event. The tracker also maintains a short exited-visitor pool for re-entry matching; once a prior visitor is matched, that exited record is consumed so multiple new tracks cannot attach to the same visitor.
 
-`detect.py` maintains per-visitor state keyed on the ByteTrack ID. It maps pixel coordinates to named zones using the bounding polygons in `store_layout.json` and emits typed events through `emit.py`:
+`detect.py` maintains per-visitor state keyed on the ByteTrack ID. It maps pixel coordinates to named zones using the bounding polygons in the store's layout file (`store_layout.json` for STORE_BLR_002, `store1_layout.json` for STORE_1, `store2_layout.json` for STORE_2) and emits typed events through `emit.py`. Each pipeline launcher (`run.sh`, `run_store1.sh`, `run_store2.sh`) exports the appropriate `STORE_ID` and layout path before invoking `detect.py`.
 - **ENTRY** — bounding box centroid crosses the store boundary inward for the first time for this visit
 - **ZONE_ENTER / ZONE_DWELL / ZONE_EXIT** — centroid enters/lingers in/leaves a product zone
 - **BILLING_QUEUE_JOIN / BILLING_QUEUE_ABANDON** — visitor reaches the billing zone; abandon if they leave without a POS match
@@ -58,24 +63,26 @@ Events are accumulated into batches of up to 500 and POSTed to `/events/ingest`.
 
 The FastAPI backend is structured around five thin computation modules (`metrics.py`, `funnel.py`, `heatmap.py`, `anomalies.py`, `health.py`) each issued a read-only `AsyncSession`. Shared business semantics live in `analytics.py`, so visitor base, conversion correlation, replay reference time, and current queue state are not reimplemented differently per endpoint. All writes go through `ingestion.py`.
 
-Store ID normalisation (`normalize_store_id`) transparently maps the POS alias `ST1008` to the canonical `STORE_BLR_002`, so POS records and CCTV events join correctly even when the CSV uses a different identifier than the camera system.
+Store ID normalisation (`normalize_store_id`) uses `_ALIAS_MAP` — a dictionary that maps every known alias to its canonical store ID. This covers `ST1008 → STORE_BLR_002`, `ST1 → STORE_1`, and `ST2 → STORE_2`, so POS records and CCTV events join correctly even when the CSV uses a different identifier than the camera system. Any store ID not present in the alias map is accepted as-is once its first event is ingested, so new stores require no API code changes — only a new alias entry if a short alias is needed.
 
 ### Dashboard (`dashboard/`)
 
-A single `index.html` with no build step. It polls metrics, funnel, heatmap, anomalies, and health in parallel every 10 seconds, renders the results into DOM nodes, and exits gracefully with an error banner if the API is unreachable. The interface is an operations console: KPI strip, conversion funnel, zone dwell heatmap, anomaly detail, and camera feed status.
+A single `index.html` with no build step. It polls metrics, funnel, heatmap, anomalies, and health in parallel every 10 seconds, renders the results into DOM nodes, and exits gracefully with an error banner if the API is unreachable. The interface is an operations console: KPI strip, conversion funnel, zone dwell heatmap, anomaly detail, and camera feed status. A store switcher dropdown at the top of the page switches the active store for all 5 API calls live, enabling operators to compare STORE_BLR_002, STORE_1, and STORE_2 without reloading the page.
 
 ## Data flow (end-to-end)
 
 ```
-CCTV frame
-  → detect.py (YOLOv8n inference)
+CCTV frame (any of 3 stores)
+  → detect.py (YOLOv8n inference, store-specific layout file)
   → tracker.py (ByteTrack: assign stable visitor_id)
-  → emit.py    (zone mapping: emit Event objects)
+  → emit.py    (zone mapping: emit Event objects with store_id)
   → POST /events/ingest  (JSON batch)
-  → ingestion.py (dedup on event_id, write EventRow + update VisitorSession)
-  → SQLite
-  → GET /stores/STORE_BLR_002/metrics  (read EventRow + VisitorSession aggregates)
-  → dashboard (display)
+  → ingestion.py (_ALIAS_MAP normalises store_id, dedup on event_id,
+                  write EventRow + update VisitorSession)
+  → SQLite  (all stores share one DB, partitioned by store_id)
+  → GET /stores/{STORE_BLR_002 | STORE_1 | STORE_2}/metrics
+         (read EventRow + VisitorSession aggregates for that store)
+  → dashboard (store switcher selects active store; all 5 calls update live)
 ```
 
 POS data flows separately: the CSV is loaded into `pos_transactions` on API startup. The shared analytics layer joins CCTV-derived billing-zone events against POS timestamps to compute conversion rate. For compressed replay clips with no direct timestamp overlap, same-day POS orders are capped by observed billing-queue visitors.
