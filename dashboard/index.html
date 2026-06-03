@@ -773,16 +773,40 @@ function renderAnomalies(anomalies) {
     const col = SEV_COL[a.severity] || SEV_COL.INFO;
     const ico = SEV_SVG[a.severity] || SEV_SVG.INFO;
     const typ = (a.anomaly_type||'').replace(/_/g,' ');
+
+    // Format detected_at as HH:MM on YYYY-MM-DD
+    let detectedLine = '';
+    if (a.detected_at) {
+      const dt = new Date(a.detected_at);
+      const date = dt.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+      const time = dt.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+      detectedLine = `<span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--t4);margin-left:auto;white-space:nowrap;">${date} ${time}</span>`;
+    }
+
+    // Build context chips
+    const ctx = a.context || {};
+    const chips = [];
+    if (ctx.lag_seconds   != null) chips.push(`lag ${Math.round(ctx.lag_seconds)}s`);
+    if (ctx.idle_minutes  != null) chips.push(`idle ${Math.round(ctx.idle_minutes)} min`);
+    if (ctx.current_depth != null) chips.push(`depth ${ctx.current_depth}`);
+    if (ctx.camera_id)             chips.push(`cam ${ctx.camera_id}`);
+    if (ctx.zone_id)               chips.push(`zone ${ctx.zone_id}`);
+    const ctxLine = chips.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;">${chips.map(c=>`<span style="font-size:10px;font-family:'JetBrains Mono',monospace;background:rgba(0,0,0,0.05);border-radius:4px;padding:1px 5px;color:var(--t3);">${c}</span>`).join('')}</div>`
+      : '';
+
     return `
       <div class="anomaly-card ${cls}">
         <div style="color:${col};flex-shrink:0;margin-top:1px;">${ico}</div>
         <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap;">
             <span style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${col};">${a.severity}</span>
             <span style="font-size:10px;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.06em;">${typ}</span>
+            ${detectedLine}
           </div>
           <div style="font-size:12px;font-weight:500;color:var(--t2);line-height:1.4;">${a.description||''}</div>
           ${a.suggested_action?`<div style="font-size:11px;margin-top:4px;font-style:italic;color:${col};opacity:.8;">${a.suggested_action}</div>`:''}
+          ${ctxLine}
         </div>
       </div>`;
   }).join('');
