@@ -1,0 +1,21 @@
+{
+  "store_id": "STORE_1",
+  "store_name": "Purplle Store 1",
+  "alt_id": "ST1",
+  "zones": [
+    {"id": "ENTRY_ZONE",    "name": "Entry / Exit",        "camera": "CAM_ENTRY_01",   "type": "entry"},
+    {"id": "TOP_SHELF",     "name": "Top Shelf (Salm/TFS/Minimalis/Aqualogi/Foxtal/JC)", "camera": "CAM_ZONE_01", "type": "product"},
+    {"id": "FRAGRANCE",     "name": "Fragrance Launch",    "camera": "CAM_ZONE_01",    "type": "product"},
+    {"id": "FOH",           "name": "Front of House",      "camera": "CAM_ZONE_01",    "type": "floor"},
+    {"id": "MAKEUP",        "name": "Makeup Units",        "camera": "CAM_ZONE_02",    "type": "product"},
+    {"id": "BOTTOM_SHELF",  "name": "Bottom Shelf (Fac/Mars/Mens/Loreal/Beaut)", "camera": "CAM_ZONE_02", "type": "product"},
+    {"id": "BILLING",       "name": "Cash Counter",        "camera": "CAM_BILLING_01", "type": "billing"}
+  ],
+  "camera_mapping": {
+    "CAM 1 - zone":    "CAM_ZONE_01",
+    "CAM 2 - zone":    "CAM_ZONE_02",
+    "CAM 3 - entry":   "CAM_ENTRY_01",
+    "CAM 5 - billing": "CAM_BILLING_01"
+  },
+  "open_hours": {"open": "10:00", "close": "22:00"}
+}

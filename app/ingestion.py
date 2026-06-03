@@ -21,14 +21,21 @@ except ImportError:  # pragma: no cover - used when uvicorn imports main.py dire
 logger = logging.getLogger(__name__)
 
 CANONICAL_STORE_ID = "STORE_BLR_002"
-STORE_ID_ALIASES = {"STORE_BLR_002", "ST1008"}
-_STORE_ID_ALIASES_UPPER = {s.upper() for s in STORE_ID_ALIASES}
+
+# Maps every known alias (uppercased) → canonical store ID.
+# Unknown store IDs pass through unchanged.
+_ALIAS_MAP: dict[str, str] = {
+    "STORE_BLR_002": "STORE_BLR_002",
+    "ST1008": "STORE_BLR_002",
+    "STORE_1": "STORE_1",
+    "ST1": "STORE_1",
+    "STORE_2": "STORE_2",
+    "ST2": "STORE_2",
+}
 
 
 def normalize_store_id(raw: str) -> str:
-    if raw.upper() in _STORE_ID_ALIASES_UPPER:
-        return CANONICAL_STORE_ID
-    return raw
+    return _ALIAS_MAP.get(raw.upper(), raw)
 
 
 def _safe_float(val: str) -> float | None:
