@@ -267,7 +267,7 @@
           Purplle <span style="color:var(--primary);">Store Intelligence</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:1px;">
-          <span style="font-size:11px;color:var(--t3);font-weight:500;">Brigade Road, Bangalore</span>
+          <span id="store-subtitle" style="font-size:11px;color:var(--t3);font-weight:500;">Brigade Road, Bangalore</span>
           <span style="color:var(--border);font-size:10px;">·</span>
           <span id="header-date" style="font-size:11px;color:var(--t3);font-weight:500;"></span>
         </div>
@@ -519,8 +519,16 @@ const API_BASE   = window.location.hostname === 'localhost' ? 'http://localhost:
 let   STORE_ID   = 'STORE_BLR_002';
 const REFRESH_MS = 10_000;
 
+const STORE_LABELS = {
+  'STORE_BLR_002': 'Brigade Road, Bangalore',
+  'STORE_1':       'Store 1',
+  'STORE_2':       'Store 2',
+};
+
 function switchStore(id) {
   STORE_ID = id;
+  const sub = document.getElementById('store-subtitle');
+  if (sub) sub.textContent = STORE_LABELS[id] || id;
   clearInterval(window._refreshTimer);
   refresh();
   window._refreshTimer = setInterval(refresh, REFRESH_MS);
