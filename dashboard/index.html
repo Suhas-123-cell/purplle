@@ -276,6 +276,11 @@
 
     <!-- Right -->
     <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <select id="store-switcher" onchange="switchStore(this.value)" style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:600;color:var(--t1);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;cursor:pointer;outline:none;">
+        <option value="STORE_BLR_002">Brigade Road (ST1008)</option>
+        <option value="STORE_1">Store 1</option>
+        <option value="STORE_2">Store 2</option>
+      </select>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;">
         <span class="label">Last refresh</span>
         <span id="last-updated" style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--t2);font-weight:500;">—</span>
@@ -511,8 +516,15 @@
 <script>
 /* ─── CONFIG ─── */
 const API_BASE   = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '/api';
-const STORE_ID   = 'STORE_BLR_002';
+let   STORE_ID   = 'STORE_BLR_002';
 const REFRESH_MS = 10_000;
+
+function switchStore(id) {
+  STORE_ID = id;
+  clearInterval(window._refreshTimer);
+  refresh();
+  window._refreshTimer = setInterval(refresh, REFRESH_MS);
+}
 const QUEUE_WARN = 4;
 const QUEUE_MAX  = 12;
 
@@ -840,7 +852,7 @@ document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 
 /* ─── BOOT ─── */
 refresh();
-setInterval(refresh, REFRESH_MS);
+window._refreshTimer = setInterval(refresh, REFRESH_MS);
 </script>
 </body>
 </html>
