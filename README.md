@@ -80,6 +80,57 @@ CCTV cameras (RTSP / MP4)
 
 Use store id `STORE_BLR_002` or the alias `ST1008` — both are accepted. For the two additional stores use `STORE_1` / `ST1` and `STORE_2` / `ST2`.
 
+## Using the Dashboard
+
+Open **http://localhost:3000** in your browser after `docker compose up -d`.
+
+### Store switcher
+The dropdown in the top-right corner lets you switch between all three stores. Selecting a store immediately re-fires all five API calls and updates every section — metrics, funnel, heatmap, anomalies, and camera health — for that store. The subtitle under the logo updates to match.
+
+### Live Metrics strip
+Four KPI cards at the top, refreshed every 10 seconds:
+
+| Card | What it shows | When to act |
+|---|---|---|
+| **Tracked Visitors** | Unique non-staff visitors seen today (presence-based, not just entry line) | Baseline check |
+| **Conversion Rate** | Billing-queue visitors who match a POS transaction within 5 min | Below 10% is a concern |
+| **Queue Depth** | People currently in the billing zone with no exit/purchase yet | ≥ 4 triggers a yellow warning; open an extra counter |
+| **Abandonment Rate** | Visitors who left billing without purchasing | Rising trend = checkout friction |
+
+### Conversion Funnel
+Shows the four-stage journey: **Entry → Zone Visit → Billing Queue → Purchase**.  
+Each stage shows visitor count and the drop-off percentage from the previous stage. Red bars (>40% drop) and yellow bars (>15% drop) highlight problem stages at a glance. Re-entries are deduplicated — the same visitor counted once regardless of how many times they appear.
+
+### Zone Activity (Heatmap)
+One row per zone, sorted busiest-to-quietest by intensity (0–100). Each row shows:
+- Zone name + busy/quiet label
+- Average dwell time in that zone
+- Total visit count
+- A **low data** badge if fewer than 20 sessions contributed — treat intensity numbers with caution for those zones.
+
+### Active Anomalies
+Each card shows:
+- **Severity badge** — CRITICAL (red) / WARN (yellow) / INFO (blue)
+- **Anomaly type** — BILLING_QUEUE_SPIKE, STALE_FEED, DEAD_ZONE, CONVERSION_DROP
+- **Detected at** — exact date and time the anomaly was computed (anchored to the store's latest event, not wall clock)
+- **Description** — human-readable explanation with specific numbers
+- **Suggested action** — what to do operationally
+- **Context chips** — raw numbers at a glance: `lag Xs` for stale feeds, `idle X min` for dead zones, `depth N` for queue spikes, `cam` or `zone` identifier
+
+Anomaly types explained:
+
+| Type | Triggers when | Severity |
+|---|---|---|
+| `STALE_FEED` | Camera silent for >10 min | WARN; CRITICAL at >20 min |
+| `DEAD_ZONE` | Zone had no visits for 30 min despite activity in past 24 h | WARN |
+| `BILLING_QUEUE_SPIKE` | Current-hour joins exceed 2× 7-day hourly average; or depth ≥ 4 with no baseline | WARN / CRITICAL |
+| `CONVERSION_DROP` | Today's conversion below 50% of 7-day average | WARN / CRITICAL |
+
+### Camera Feeds
+Bottom section lists every camera the API has seen events from, with lag in seconds and a green (live) / amber (stale) chip. Lag is computed relative to the store's own latest event timestamp — historical replay data is never falsely shown as stale.
+
+---
+
 ## How the pipeline feeds the API
 
 1. `detect.py` reads each video frame (live RTSP or recorded `.mp4`) and runs **YOLOv8n** to detect `person` bounding boxes.
