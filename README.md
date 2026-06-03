@@ -3,7 +3,7 @@
 Real-time and replay-safe CCTV analytics for **STORE_BLR_002 (ST1008)**.  
 Detects visitors, tracks zone dwell, correlates billing visits with POS orders, spots anomalies, and streams metrics to a live dashboard.
 
-## Setup in 6 commands
+## Setup (multi-store)
 
 ```bash
 # 1. Clone the repo
@@ -22,8 +22,15 @@ docker compose up -d
 # 5. Install pipeline dependencies into the project venv
 .venv/bin/pip install -r pipeline/requirements.txt
 
-# 6. Start the detection pipeline (automatically uses the venv)
+# 6. Start the detection pipeline for STORE_BLR_002 (automatically uses the venv)
 cd pipeline && ./run.sh
+
+# Run Store 1 pipeline
+cd pipeline && ./run_store1.sh
+# Run Store 2 pipeline
+cd pipeline && ./run_store2.sh
+# Validate all generated events
+.venv/bin/python pipeline/validate_schema.py data/events/
 ```
 
 Dashboard is at **http://localhost:3000** · API at **http://localhost:8000**
@@ -31,6 +38,8 @@ Dashboard is at **http://localhost:3000** · API at **http://localhost:8000**
 ---
 
 ## Architecture
+
+Supports 3 stores: **STORE_BLR_002**, **STORE_1**, and **STORE_2**. The dashboard includes a store switcher dropdown that switches all 5 API calls live.
 
 ```
 CCTV cameras (RTSP / MP4)
@@ -55,6 +64,7 @@ CCTV cameras (RTSP / MP4)
   └── pos_transactions   ← loaded from POS CSV at startup
         │
   dashboard/index.html   ← vanilla JS, polls API every 10 s
+                            store switcher toggles active store for all calls
 ```
 
 ## API endpoints
@@ -66,9 +76,9 @@ CCTV cameras (RTSP / MP4)
 | `GET`  | `/stores/{id}/funnel` | Conversion funnel stages with drop-off percentages. |
 | `GET`  | `/stores/{id}/heatmap` | Per-zone visit counts, avg dwell time, and intensity (0–100). |
 | `GET`  | `/stores/{id}/anomalies` | Active anomalies: BILLING_QUEUE_SPIKE, CONVERSION_DROP, DEAD_ZONE, STALE_FEED. |
-| `GET`  | `/health` | Service health + per-camera staleness status. |
+| `GET`  | `/health` | Service health + per-camera staleness status. Accepts optional `?store_id=` query param to scope the check to a single store. |
 
-Use store id `STORE_BLR_002` or the alias `ST1008` — both are accepted.
+Use store id `STORE_BLR_002` or the alias `ST1008` — both are accepted. For the two additional stores use `STORE_1` / `ST1` and `STORE_2` / `ST2`.
 
 ## How the pipeline feeds the API
 
@@ -89,15 +99,19 @@ The challenge clips are historical and compressed into a short camera window, wh
 - Conversion first applies the required 5-minute billing-zone-to-POS window. If replay timestamps do not overlap POS wall-clock time, it falls back to same-day order correlation capped by observed billing-queue visitors.
 - Low-confidence detections are retained but marked with `review_required` and `LOW_DETECTION_CONFIDENCE`, so the replay remains auditable instead of silently dropping uncertain people.
 
-Current validation target after loading the included sample events:
+Current validation target after loading the included sample events (all 3 stores):
 
 ```text
+STORE_BLR_002 (ST1008)
 Visitors: 35
 Funnel: Entry 35 → Zone Visit 35 → Billing Queue 5 → Purchase 5
 Conversion: 14.29%
 Queue depth: 0
 Max zone avg dwell: ~70 seconds
 Health: ok across 5 cameras
+
+STORE_1 (ST1) and STORE_2 (ST2)
+Events validated via: .venv/bin/python pipeline/validate_schema.py data/events/
 ```
 
 ## Running tests
