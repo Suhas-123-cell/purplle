@@ -20,6 +20,7 @@ while [[ $# -gt 0 ]]; do
     --start-time)  START_TIME="$2";  shift 2 ;;
     --mock)        MOCK_FLAG="--mock"; shift ;;
     --log-level)   LOG_LEVEL="$2";   shift 2 ;;
+    --sample-every) SAMPLE_EVERY="$2"; shift 2 ;;
     *) echo "[ERROR] Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
