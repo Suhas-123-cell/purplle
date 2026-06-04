@@ -5,6 +5,7 @@ import os
 import re
 import time
 import uuid
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.base import BaseHTTPMiddleware
 
 try:
     from .anomalies import compute_anomalies
@@ -54,6 +56,22 @@ except ImportError:  # pragma: no cover - used when uvicorn imports main.py dire
     )
 
 POS_CSV_PATH = os.getenv("POS_CSV_PATH", "/data/pos_transactions.csv")
+
+_INGEST_LIMIT = int(os.getenv("INGEST_RATE_LIMIT_PER_MIN", "60"))
+_INGEST_WINDOW = 60.0  # seconds
+_ingest_hits: dict[str, list[float]] = defaultdict(list)
+
+
+def _allow_ingest(ip: str) -> bool:
+    now = time.monotonic()
+    bucket = _ingest_hits[ip]
+    cutoff = now - _INGEST_WINDOW
+    while bucket and bucket[0] < cutoff:
+        bucket.pop(0)
+    if len(bucket) >= _INGEST_LIMIT:
+        return False
+    bucket.append(now)
+    return True
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,6 +114,26 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+
+_MAX_BODY_SIZE = 2 * 1024 * 1024  # 2MB
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        content_length = request.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                if int(content_length) > _MAX_BODY_SIZE:
+                    return JSONResponse(
+                        {"error": "payload_too_large", "detail": "Request body exceeds 2MB limit."},
+                        status_code=413,
+                    )
+            except ValueError:
+                pass
+        return await call_next(request)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
 
 
 @app.middleware("http")
@@ -152,6 +190,13 @@ async def ingest_endpoint(
     request: Request,
     payload: IngestRequest,
 ) -> IngestResponse:
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if not _allow_ingest(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded — max 60 ingest batches per minute.",
+            headers={"Retry-After": "60"},
+        )
     trace_id = getattr(request.state, "trace_id", str(uuid.uuid4()))
     try:
         result = await ingest_events(payload.events)
