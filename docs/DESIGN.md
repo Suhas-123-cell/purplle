@@ -108,3 +108,25 @@ POS data flows separately: the CSV is loaded into `pos_transactions` on API star
 **2. Anomaly detection thresholds.** The 2× multiplier for `BILLING_QUEUE_SPIKE` and the 50% drop for `CONVERSION_DROP` are conservative starting points derived from retail analytics norms. A queue twice the rolling average is operationally significant; a 50% conversion swing in a single day is hard to explain by noise. In a production deployment these would be calibrated per store using historical p95 values. The current approach recomputes the 7-day rolling average on every request; a `daily_stats` table would be the right optimisation at scale, but adds schema complexity not justified for a single-store deployment.
 
 **3. Persistence boundary isolated to one module.** All database access goes through `database.py` (session factory) and the ORM models. The five analytics modules receive an injected `AsyncSession` and know nothing about the underlying engine. If the system were extended to PostgreSQL or TimescaleDB, `DATABASE_URL` and the driver in `database.py` are the only required changes — none of the query code in `metrics.py`, `funnel.py`, etc. would need to change.
+
+## AI-Assisted Decisions
+
+Three places where an LLM shaped how I built this system, and what I actually did with the suggestion.
+
+**1. Re-entry matching: IoU vs. histogram features — I overrode the AI suggestion**
+
+When I asked Claude how to detect re-entry across frames, it suggested comparing bounding-box IoU between the last known position of an exited visitor and the new detection. The reasoning was reasonable: if someone steps out briefly and comes back through the same door, their bounding box at re-entry will overlap in pixel space with where they exited.
+
+I didn't use this. IoU is a spatial overlap metric, not an identity metric. It tells you where a box is, not who is in it. It breaks the moment someone re-enters from a slightly different angle, or from a second entrance, or after other people have moved through the same pixel region. A customer who exits, checks their phone outside, and walks back in ten seconds later would generate a false ENTRY because the IoU match would fail. I went with HSV colour histogram features extracted from the person crop, matched via cosine similarity. Histograms survive moderate angle and lighting changes, which is realistic for a retail doorway, and the exited-visitor pool has a TTL so old entries don't cause phantom matches.
+
+**2. Event schema structure: flat vs. metadata wrapper — I partially agreed**
+
+My first prompt asked Claude to design the event schema. It returned a completely flat structure — all fields at the top level, including `queue_depth`, `sku_zone`, and `session_seq` directly on the event object. The argument was SQL simplicity: flat JSON is easier to query without JSON extraction functions.
+
+I agreed that simplicity matters but disagreed on `queue_depth` and `sku_zone`. These fields are only meaningful for `BILLING_QUEUE_JOIN` events — putting them at the top level means every `ENTRY` and `ZONE_DWELL` carries null fields that serve no purpose. I kept the `metadata` wrapper for billing-specific and review-specific fields to avoid that noise. I did take one thing from the AI: it pointed out I'd originally named the ordinal field `visit_seq`, which becomes confusing when re-entries reset it. It suggested `session_seq` as more precise. That name is in the final schema.
+
+**3. Reference time for replay analytics: wall-clock vs. data-anchored — I agreed after pushing back**
+
+My first version of `analytics.py` used `datetime.utcnow()` everywhere. Claude flagged this: the footage is from April 2026, but the API runs in June. Every "today" window would be empty, every camera would appear stale, and the dashboard would show zeroes for a store with hundreds of real ingested events.
+
+My initial instinct was to add a `REPLAY_MODE` env variable that switches between wall-clock and event-anchored time. Claude said that was overengineering it — deriving reference time from the latest event timestamp in the DB works for both replay and live feeds without any config, and it's self-calibrating (live streams have latest event ≈ now anyway). I resisted briefly because it felt like the system was "lying" about the current time. But the alternative — requiring every reviewer to set an env variable before the dashboard shows anything — was clearly worse. The current `get_reference_now()` in `analytics.py` is what the AI suggested, and it was the right call.

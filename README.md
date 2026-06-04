@@ -6,34 +6,71 @@ Detects visitors, tracks zone dwell, correlates billing visits with POS orders, 
 ## Setup (multi-store)
 
 ```bash
-# 1. Clone the repo
+# 1. Clone the repo and enter it
 git clone <repo> && cd purplle
 
 # 2. Drop the POS export into the data directory
 cp /path/to/pos_transactions.csv data/
 
-# 3. Drop footage clips (optional — pipeline runs on live RTSP or recorded files)
-cp -r /path/to/footage data/footage/
-
-# 4. Start API + dashboard. Compose mounts ./app and ./dashboard so local
-#    source edits are reflected without rebuilding the images.
+# 3. Start API + dashboard
 docker compose up -d
+# API is at http://localhost:8000 · Dashboard at http://localhost:3000
 
-# 5. Install pipeline dependencies into the project venv
-.venv/bin/pip install -r pipeline/requirements.txt
+# 4. Install pipeline dependencies
+python3 -m venv .venv && .venv/bin/pip install -r pipeline/requirements.txt
 
-# 6. Start the detection pipeline for STORE_BLR_002 (automatically uses the venv)
-cd pipeline && ./run.sh
+# 5a. Run Store 1 pipeline (pass the path to your Store 1 footage directory)
+pipeline/run_store1.sh --video-dir "/path/to/Store 1"
+# Or with mock events (no video required, for dry-run testing):
+pipeline/run_store1.sh --mock
 
-# Run Store 1 pipeline
-cd pipeline && ./run_store1.sh
-# Run Store 2 pipeline
-cd pipeline && ./run_store2.sh
-# Validate all generated events
-.venv/bin/python pipeline/validate_schema.py data/events/
+# 5b. Run Store 2 pipeline
+pipeline/run_store2.sh --video-dir "/path/to/Store 2"
+# Or with mock:
+pipeline/run_store2.sh --mock
+
+# 5c. Run Brigade Road (STORE_BLR_002) pipeline
+pipeline/run.sh
+
+# 6. Validate generated event schema (offline, no API needed)
+python3 pipeline/validate_schema.py data/events/store1 data/events/store2
+
+# 7. Validate live API sanity
+python3 pipeline/validate_data.py                   # defaults to STORE_BLR_002
+python3 pipeline/validate_data.py --store STORE_1
+python3 pipeline/validate_data.py --store STORE_2
 ```
 
-Dashboard is at **http://localhost:3000** · API at **http://localhost:8000**
+### Ingesting organizer sample events
+
+If you received a sample_events.jsonl from the challenge organizer in a different format, convert it first:
+
+```bash
+python3 pipeline/normalize_sample.py /path/to/sample_events.jsonl data/events/canonical.jsonl
+python3 pipeline/ingest_events.py data/events/canonical.jsonl
+```
+
+### Resetting the database
+
+If you see inflated queue depths or stale data from previous runs, reset the database:
+
+```bash
+rm data/store_intelligence.db
+docker compose restart app
+```
+
+After restart, re-run the pipeline scripts to re-ingest events.
+
+### Pipeline flags (all run scripts)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--video-dir DIR` | Script default (user-specific) | Path to the store's footage directory |
+| `--output-dir DIR` | `data/events/storeN/` | Where to write generated JSONL files |
+| `--api-url URL` | `http://localhost:8000` | API base URL |
+| `--start-time ISO` | `2026-04-10T10:00:00Z` | Replay start timestamp injected into events |
+| `--sample-every N` | `5` | Process every Nth frame (higher = faster, fewer events) |
+| `--mock` | Off | Emit synthetic events without running YOLO (for dry-run) |
 
 ---
 
