@@ -6,8 +6,6 @@ data/footage/
 *.mp4
 pipeline/yolov8*.pt
 *.pt
-data/events/store1/
-data/events/store2/
 .pytest_cache/
 .DS_Store
 venv/
