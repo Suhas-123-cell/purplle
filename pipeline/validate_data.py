@@ -7,12 +7,15 @@ then prints a PASS/FAIL report for each sanity check.
 
 Usage:
     python pipeline/validate_data.py
+    python pipeline/validate_data.py --store STORE_1
+    python pipeline/validate_data.py --store STORE_BLR_002 --api-url http://localhost:8000
 
 Requirements: stdlib + requests
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import os
@@ -314,6 +317,24 @@ def check_camera_count() -> bool:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    global API_BASE, STORE_ID
+
+    parser = argparse.ArgumentParser(description="Purplle retail analytics validation")
+    parser.add_argument(
+        "--store",
+        default="STORE_BLR_002",
+        help="Store ID to validate (default: STORE_BLR_002)",
+    )
+    parser.add_argument(
+        "--api-url",
+        default="http://localhost:8000",
+        help="API base URL (default: http://localhost:8000)",
+    )
+    args = parser.parse_args()
+
+    API_BASE = args.api_url
+    STORE_ID = args.store
+
     print()
     print("=" * 64)
     print("  Purplle Retail Analytics — Data Validation Report")
@@ -321,6 +342,9 @@ def main() -> None:
     print(f"  API   : {API_BASE}")
     print(f"  Run   : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 64)
+    print()
+    print("  NOTE: For a clean run, reset the DB first:")
+    print("        rm data/store_intelligence.db && docker compose restart app")
     print()
 
     results: List[bool] = []
