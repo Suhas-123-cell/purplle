@@ -1,3 +1,27 @@
+# PROMPT: Write pytest tests for a CCTV retail analytics pipeline that emits
+# structured visitor events. The pipeline uses YOLOv8n + ByteTrack. Cover:
+# (1) event schema compliance — all required fields, UUID v4 event_id, confidence
+# bounds, zone_id required for zone events; (2) re-entry detection — same visitor
+# re-entering after EXIT must produce REENTRY not a second ENTRY, session_seq resets
+# to 1; (3) staff exclusion — is_staff=True events emitted for audit but excluded
+# from customer KPIs, an all-staff clip yields zero customers; (4) group entry —
+# 3 people entering together produce 3 ENTRY events not 1, each with a unique
+# visitor_id; (5) confidence calibration — low-confidence events are NOT suppressed,
+# they carry a review_flag instead; (6) empty store period — zero events is valid,
+# no stale feed triggered without a prior timestamp. Include edge cases for each.
+#
+# CHANGES MADE: AI generated the schema and group entry tests accurately, but got
+# confidence handling backwards — it wrote tests asserting low-conf events were
+# dropped, which is the opposite of the design (we emit everything and flag it).
+# Rewrote TestConfidenceCalibration entirely and added the review_flag / confidence_bucket
+# assertions that call build_event() directly. Also added TestTrackerHeuristics for
+# the fast-multi-zone staff heuristic and the reentry-match-consumed-once invariant —
+# AI had no knowledge of those since they came from tracker.py logic I wrote after
+# the initial prompt. The staff rapid-traversal test was added after I saw the
+# heuristic trigger false positives on a customer who paused at 3 zones quickly;
+# needed a test that confirmed the flag fired only after the 90-second window, not
+# on any 3-zone sequence.
+
 """
 Tests for the CCTV detection pipeline event emitter.
 
@@ -132,7 +156,7 @@ class TestEventSchemaCompliance:
                 event_type=EventType.ZONE_DWELL,
                 timestamp=BASE_TS,
                 zone_id="SKINCARE",
-                dwell_ms=-1,
+                dwell_ms=-1,  # type: ignore[arg-type]  # intentionally invalid to test Pydantic rejection
                 confidence=0.9,
             )
 
