@@ -36,6 +36,12 @@ STORE_ID = "STORE_BLR_002"
 # Resolve event JSONL files relative to this script's location
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 EVENTS_DIR = os.path.join(_SCRIPT_DIR, "..", "data", "events")
+STORE_EVENT_DIRS = {
+    "STORE_1": os.path.join(EVENTS_DIR, "store1"),
+    "ST1": os.path.join(EVENTS_DIR, "store1"),
+    "STORE_2": os.path.join(EVENTS_DIR, "store2"),
+    "ST2": os.path.join(EVENTS_DIR, "store2"),
+}
 
 PASS = "PASS ✓"
 FAIL = "FAIL ✗"
@@ -59,14 +65,18 @@ def _print(status: bool, check: str, reason: str) -> None:
     print(f"  {label}  [{check}] {reason}")
 
 
+def _event_files_for_store() -> List[str]:
+    event_dir = STORE_EVENT_DIRS.get(STORE_ID.upper(), EVENTS_DIR)
+    return sorted(glob.glob(os.path.join(event_dir, "*.jsonl")))
+
+
 # ── checks ────────────────────────────────────────────────────────────────────
 
 def check_event_count_match() -> bool:
     """Check 1: JSONL line count matches DB accepted event count."""
-    pattern = os.path.join(EVENTS_DIR, "*.jsonl")
-    files = glob.glob(pattern)
+    files = _event_files_for_store()
     if not files:
-        _print(False, "EVENT COUNT", f"No JSONL files found in {EVENTS_DIR}")
+        _print(False, "EVENT COUNT", f"No JSONL files found for store {STORE_ID}")
         return False
 
     jsonl_total = 0
@@ -100,8 +110,7 @@ def check_event_count_match() -> bool:
 
 def check_entry_count_reasonable() -> bool:
     """Check 2: ENTRY event count >= 5% of unique visitors."""
-    pattern = os.path.join(EVENTS_DIR, "*.jsonl")
-    files = glob.glob(pattern)
+    files = _event_files_for_store()
 
     entry_count = 0
     for fpath in files:
@@ -203,8 +212,7 @@ def check_queue_depth_sanity() -> bool:
 
 def check_review_metadata() -> bool:
     """Check 6: low-confidence JSONL events carry explicit review metadata."""
-    pattern = os.path.join(EVENTS_DIR, "*.jsonl")
-    files = glob.glob(pattern)
+    files = _event_files_for_store()
     low_conf = 0
     flagged = 0
     missing: List[str] = []
@@ -243,8 +251,7 @@ def check_review_metadata() -> bool:
 def check_pos_cctv_time_overlap() -> None:
     """Check 7: Print CCTV and POS time ranges so the operator can verify overlap.
     This is informational — no PASS/FAIL, just the ranges side-by-side."""
-    pattern = os.path.join(EVENTS_DIR, "*.jsonl")
-    files = glob.glob(pattern)
+    files = _event_files_for_store()
 
     cctv_min: Optional[str] = None
     cctv_max: Optional[str] = None

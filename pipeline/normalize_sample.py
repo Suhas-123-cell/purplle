@@ -42,8 +42,6 @@ EVENT_TYPE_MAP: dict[str, str] = {
     "exit": "EXIT",
     "zone_entered": "ZONE_ENTER",
     "zone_exited": "ZONE_EXIT",
-    "queue_completed": "BILLING_QUEUE_JOIN",
-    "queue_abandoned": "BILLING_QUEUE_ABANDON",
 }
 
 _SANITIZE_RE = re.compile(r"[^\w\-]")
@@ -58,14 +56,52 @@ def normalize_store_id(raw: str) -> str:
     return STORE_ALIAS_MAP.get(raw.upper(), raw)
 
 
-def _build_canonical(src: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Return a canonical event dict or None if the event should be skipped."""
+def _base_event(
+    src: dict[str, Any],
+    event_type: str,
+    visitor_id: str,
+    store_id: str,
+    camera_id: str,
+    timestamp: str,
+    zone_id: Optional[str],
+    dwell_ms: int = 0,
+) -> dict[str, Any]:
+    queue_depth = src.get("queue_position_at_join") if event_type in (
+        "BILLING_QUEUE_JOIN",
+        "BILLING_QUEUE_ABANDON",
+    ) else None
+
+    return {
+        "event_id": str(uuid.uuid4()),
+        "store_id": store_id,
+        "camera_id": camera_id,
+        "visitor_id": visitor_id,
+        "event_type": event_type,
+        "timestamp": timestamp,
+        "zone_id": zone_id,
+        "dwell_ms": dwell_ms,
+        "is_staff": bool(src.get("is_staff", False)),
+        "confidence": 1.0,
+        "metadata": {
+            "queue_depth": queue_depth,
+            "sku_zone": None,
+            "session_seq": None,
+            "review_required": False,
+            "review_flags": [],
+        },
+    }
+
+
+def _build_canonical(src: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return one or more canonical event dicts. Empty list means skip."""
 
     raw_type = src.get("event_type", "")
     canonical_type = EVENT_TYPE_MAP.get(raw_type)
+    is_queue_event = raw_type in {"queue_completed", "queue_abandoned"}
     if canonical_type is None:
-        print(f"WARNING: unknown event_type '{raw_type}' — skipping", file=sys.stderr)
-        return None
+        if not is_queue_event:
+            print(f"WARNING: unknown event_type '{raw_type}' — skipping", file=sys.stderr)
+            return []
 
     # Visitor ID
     id_token = src.get("id_token")
@@ -76,17 +112,13 @@ def _build_canonical(src: dict[str, Any]) -> Optional[dict[str, Any]]:
         visitor_id = f"TRACK_{int(track_id)}"
     else:
         print(f"WARNING: no visitor id in event (type={raw_type}) — skipping", file=sys.stderr)
-        return None
+        return []
 
     # Timestamp
-    timestamp = (
-        src.get("event_timestamp")
-        or src.get("event_time")
-        or src.get("queue_join_ts")
-    )
+    timestamp = src.get("event_timestamp") or src.get("event_time") or src.get("queue_join_ts")
     if not timestamp:
         print(f"WARNING: no timestamp in event (type={raw_type}, visitor={visitor_id}) — skipping", file=sys.stderr)
-        return None
+        return []
 
     # Store ID
     raw_store = src.get("store_code") or src.get("store_id") or ""
@@ -98,42 +130,63 @@ def _build_canonical(src: dict[str, Any]) -> Optional[dict[str, Any]]:
 
     # Zone ID
     raw_zone = src.get("zone_id")
-    zone_id = _sanitize(raw_zone) if raw_zone else None
+    zone_id = "BILLING" if is_queue_event else (_sanitize(raw_zone) if raw_zone else None)
 
-    # dwell_ms: queue events use wait_seconds * 1000
-    wait_seconds = src.get("wait_seconds")
-    if canonical_type in ("BILLING_QUEUE_JOIN", "BILLING_QUEUE_ABANDON") and wait_seconds is not None:
-        dwell_ms = int(float(wait_seconds) * 1000)
-    else:
-        dwell_ms = 0
+    if is_queue_event:
+        if not src.get("queue_join_ts"):
+            print(f"WARNING: queue event missing queue_join_ts (visitor={visitor_id}) — skipping", file=sys.stderr)
+            return []
+        wait_seconds = int(float(src.get("wait_seconds") or 0))
+        events = [
+            _base_event(
+                src,
+                "BILLING_QUEUE_JOIN",
+                visitor_id,
+                store_id,
+                camera_id,
+                src["queue_join_ts"],
+                zone_id,
+            )
+        ]
+        if raw_type == "queue_abandoned":
+            events.append(
+                _base_event(
+                    src,
+                    "BILLING_QUEUE_ABANDON",
+                    visitor_id,
+                    store_id,
+                    camera_id,
+                    src.get("queue_exit_ts") or timestamp,
+                    zone_id,
+                    dwell_ms=wait_seconds * 1000,
+                )
+            )
+        else:
+            events.append(
+                _base_event(
+                    src,
+                    "ZONE_EXIT",
+                    visitor_id,
+                    store_id,
+                    camera_id,
+                    src.get("queue_exit_ts") or src.get("queue_served_ts") or timestamp,
+                    zone_id,
+                    dwell_ms=wait_seconds * 1000,
+                )
+            )
+        return events
 
-    # is_staff
-    is_staff = bool(src.get("is_staff", False))
-
-    # queue_depth
-    queue_depth = src.get("queue_position_at_join") if canonical_type in (
-        "BILLING_QUEUE_JOIN", "BILLING_QUEUE_ABANDON"
-    ) else None
-
-    return {
-        "event_id": str(uuid.uuid4()),
-        "store_id": store_id,
-        "camera_id": camera_id,
-        "visitor_id": visitor_id,
-        "event_type": canonical_type,
-        "timestamp": timestamp,
-        "zone_id": zone_id,
-        "dwell_ms": dwell_ms,
-        "is_staff": is_staff,
-        "confidence": 1.0,
-        "metadata": {
-            "queue_depth": queue_depth,
-            "sku_zone": None,
-            "session_seq": None,
-            "review_required": False,
-            "review_flags": [],
-        },
-    }
+    return [
+        _base_event(
+            src,
+            canonical_type,
+            visitor_id,
+            store_id,
+            camera_id,
+            timestamp,
+            zone_id,
+        )
+    ]
 
 
 def main() -> None:
@@ -161,10 +214,10 @@ def main() -> None:
                 continue
 
             result = _build_canonical(src)
-            if result is None:
+            if not result:
                 skipped += 1
             else:
-                converted.append(result)
+                converted.extend(result)
 
     dest_label = output_path if output_path else "<stdout>"
     print(
