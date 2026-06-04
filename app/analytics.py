@@ -5,7 +5,7 @@ from typing import Iterable
 
 import logging
 
-from sqlalchemy import Date, and_, cast, distinct, func, select
+from sqlalchemy import and_, distinct, func, select
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,7 +131,7 @@ async def get_purchase_visitors(
         select(func.count(distinct(POSTransaction.order_id))).where(
             and_(
                 POSTransaction.store_id == store_id,
-                func.date(POSTransaction.transaction_ts) == cast(data_now.date(), Date),
+                func.date(POSTransaction.transaction_ts) == data_now.strftime("%Y-%m-%d"),
             )
         )
     ) or 0
