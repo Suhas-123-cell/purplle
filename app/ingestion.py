@@ -31,6 +31,8 @@ _ALIAS_MAP: dict[str, str] = {
     "ST1": "STORE_1",
     "STORE_2": "STORE_2",
     "ST2": "STORE_2",
+    "STORE_1076": "STORE_1076",
+    "ST1076": "STORE_1076",
 }
 
 
@@ -100,8 +102,6 @@ async def load_pos_from_csv(csv_path: str) -> Tuple[int, int]:
                     store_id=normalize_store_id(raw_store_id) if raw_store_id else raw_store_id,
                     store_name=row.get("store_name", "").strip() or None,
                     city=row.get("city", "").strip() or None,
-                    customer_name=row.get("customer_name", "").strip() or None,
-                    customer_number=row.get("customer_number", "").strip() or None,
                     sku=row.get("sku", "").strip() or None,
                     product_name=row.get("product_name", "").strip() or None,
                     brand_name=row.get("brand_name", "").strip() or None,
@@ -112,7 +112,6 @@ async def load_pos_from_csv(csv_path: str) -> Tuple[int, int]:
                     nmv=_safe_float(row.get("NMV", "")),
                     total_amount=_safe_float(row.get("total_amount", "")),
                     salesperson_id=row.get("salesperson_id", "").strip() or None,
-                    salesperson_name=row.get("salesperson_name", "").strip() or None,
                     transaction_ts=ts,
                 )
                 batch.append(txn)
