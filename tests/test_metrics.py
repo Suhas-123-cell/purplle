@@ -1,3 +1,26 @@
+# PROMPT: Generate pytest tests for FastAPI store analytics endpoints backed by
+# an in-memory SQLite database. Endpoints to test: GET /stores/{id}/metrics
+# (unique_visitors, conversion_rate, avg_dwell_per_zone, queue_depth,
+# abandonment_rate), GET /stores/{id}/funnel (entry → zone visit → billing queue
+# → purchase stages with drop-off %), GET /stores/{id}/heatmap (zone visit
+# frequency + avg dwell, intensity 0–100, data_confidence flag when <20 sessions).
+# Requirements: staff events (is_staff=True) excluded from all visitor counts;
+# re-entries must not double-count a visitor in the funnel; zero-traffic store
+# returns valid JSON with 0s not null or 500; same event_id ingested twice must
+# not inflate counts. Use pytest-asyncio with httpx AsyncClient against the ASGI
+# app, in-memory DB per test function.
+#
+# CHANGES MADE: AI scaffolded the async test setup and basic endpoint shape checks
+# well. Two things I rewrote completely: (1) conversion_rate tests — AI assumed
+# conversion was ENTRY count vs POS row count, but the actual logic correlates
+# billing-zone visitors against POS timestamps in a 5-minute window, so the
+# fixtures needed a totally different event sequence to produce a non-zero rate.
+# (2) funnel deduplication — AI wrote it with two ENTRY events for the same
+# visitor_id to check count==1, but that only tests ingest dedup at the DB level,
+# not funnel-stage dedup. Rewrote it with ENTRY + REENTRY and verified the funnel
+# stage count stays at 1. Also added the zero-purchase store and all-staff-clip
+# edge cases from scratch — those weren't in the AI output at all.
+
 """
 Tests for store metrics computation via the FastAPI endpoints.
 
@@ -14,7 +37,7 @@ from typing import List
 import pytest
 
 from app.models import Event, EventMetadata, EventType
-from tests.conftest import STORE_ID, _ingest
+from conftest import STORE_ID, _ingest
 
 BASE_TS = datetime(2026, 4, 10, 14, 0, 0)
 
