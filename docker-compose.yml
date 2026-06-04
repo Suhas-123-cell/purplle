@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile
     container_name: purplle_dashboard
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     volumes:
       - ./dashboard:/usr/share/nginx/html:ro
     depends_on:

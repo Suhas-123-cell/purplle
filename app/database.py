@@ -89,8 +89,6 @@ class POSTransaction(Base):
     store_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     store_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    customer_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    customer_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     sku: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     product_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     brand_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -101,7 +99,6 @@ class POSTransaction(Base):
     nmv: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     total_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     salesperson_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    salesperson_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     transaction_ts: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
     __table_args__ = (

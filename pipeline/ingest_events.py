@@ -5,7 +5,6 @@ import requests
 
 BATCH_SIZE = 500
 API_URL = os.getenv("INGEST_API_URL", "http://localhost:8000")
-API_KEY = os.getenv("API_KEY", "")
 
 
 def main() -> None:
@@ -28,7 +27,6 @@ def main() -> None:
                 r = requests.post(
                     f"{API_URL}/events/ingest",
                     json={"events": batch},
-                    headers={"X-API-Key": API_KEY} if API_KEY else {},
                     timeout=30,
                 )
                 r.raise_for_status()
