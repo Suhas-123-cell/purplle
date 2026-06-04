@@ -82,11 +82,11 @@ CAM3_VIDEO="${VIDEO_DIR}/CAM 3.mp4"
 CAM4_VIDEO="${VIDEO_DIR}/CAM 4.mp4"
 CAM5_VIDEO="${VIDEO_DIR}/CAM 5.mp4"
 
-CAM1_ID="CAM_ENTRY_01"
-CAM2_ID="CAM_FLOOR_01"
-CAM3_ID="CAM_BILLING_01"
-CAM4_ID="CAM_FLOOR_02"
-CAM5_ID="CAM_ENTRY_02"
+CAM1_ID="CAM_FLOOR_01"
+CAM2_ID="CAM_FLOOR_02"
+CAM3_ID="CAM_ENTRY_01"
+CAM4_ID="CAM_BILLING_01"
+CAM5_ID="CAM_FLOOR_03"
 
 STORE_ID="STORE_BLR_002"
 
@@ -158,17 +158,17 @@ mkdir -p "${OUTPUT_DIR}"
 
 # --- Step 1: Process entry camera first (sequential) ---
 log "=== Step 1/2: Processing primary entry camera (CAM_ENTRY_01) ==="
-run_detect "${CAM1_VIDEO}" "${CAM1_ID}"
+run_detect "${CAM3_VIDEO}" "${CAM3_ID}"
 
 # --- Step 2: Process remaining cameras in parallel ---
 log "=== Step 2/2: Processing remaining cameras in parallel ==="
 
 pids=()
 
-run_detect "${CAM2_VIDEO}" "${CAM2_ID}" &
+run_detect "${CAM1_VIDEO}" "${CAM1_ID}" &
 pids+=($!)
 
-run_detect "${CAM3_VIDEO}" "${CAM3_ID}" &
+run_detect "${CAM2_VIDEO}" "${CAM2_ID}" &
 pids+=($!)
 
 run_detect "${CAM4_VIDEO}" "${CAM4_ID}" &

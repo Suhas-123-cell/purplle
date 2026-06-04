@@ -12,11 +12,11 @@
     {"id": "BILLING",    "name": "Billing Zone", "camera": "CAM_BILLING_01", "type": "billing"}
   ],
   "camera_mapping": {
-    "CAM 1": "CAM_ENTRY_01",
-    "CAM 2": "CAM_FLOOR_01",
-    "CAM 3": "CAM_BILLING_01",
-    "CAM 4": "CAM_FLOOR_02",
-    "CAM 5": "CAM_ENTRY_02"
+    "CAM 1": "CAM_FLOOR_01",
+    "CAM 2": "CAM_FLOOR_02",
+    "CAM 3": "CAM_ENTRY_01",
+    "CAM 4": "CAM_BILLING_01",
+    "CAM 5": "CAM_FLOOR_03"
   },
   "open_hours": {"open": "10:00", "close": "22:00"}
 }

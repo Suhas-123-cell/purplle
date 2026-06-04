@@ -3,63 +3,72 @@
 Real-time and replay-safe CCTV analytics for **STORE_BLR_002 (ST1008)**.  
 Detects visitors, tracks zone dwell, correlates billing visits with POS orders, spots anomalies, and streams metrics to a live dashboard.
 
-## Setup (multi-store)
+## Quick Start (5 commands)
 
 ```bash
-# 1. Clone the repo and enter it
+# 1. Clone the repo
 git clone <repo> && cd purplle
 
-# 2. Drop the POS export into the data directory
-cp /path/to/pos_transactions.csv data/
+# 2. Add POS data and start the API + dashboard
+cp /path/to/pos_transactions.csv data/ && docker compose up -d
 
-# 3. Start API + dashboard
-docker compose up -d
-# API is at http://localhost:8000 · Dashboard at http://localhost:3000
-
-# 4. Install pipeline dependencies
+# 3. Install detection pipeline dependencies
 python3 -m venv .venv && .venv/bin/pip install -r pipeline/requirements.txt
 
-# 5a. Run Store 1 pipeline (pass the path to your Store 1 footage directory)
+# 4. Run the detection pipeline against footage (feeds API automatically)
 pipeline/run_store1.sh --video-dir "/path/to/Store 1"
-# Or with mock events (no video required, for dry-run testing):
-pipeline/run_store1.sh --mock
 
-# 5b. Run Store 2 pipeline
+# 5. Confirm everything works
+curl http://localhost:8000/stores/STORE_1/metrics
+# Dashboard at http://localhost:3000
+```
+
+> **No footage?** Replace step 4 with `pipeline/run_store1.sh --mock` to generate
+> synthetic events and still exercise the full API and dashboard.
+
+---
+
+## All stores
+
+```bash
+# Store 1 (STORE_1 / ST1)
+pipeline/run_store1.sh --video-dir "/path/to/Store 1"
+
+# Store 2 (STORE_2 / ST2)
 pipeline/run_store2.sh --video-dir "/path/to/Store 2"
-# Or with mock:
-pipeline/run_store2.sh --mock
 
-# 5c. Run Brigade Road (STORE_BLR_002) pipeline
-pipeline/run.sh
-
-# 6. Validate generated event schema (offline, no API needed)
-python3 pipeline/validate_schema.py data/events/store1 data/events/store2
-
-# 7. Validate live API sanity
-python3 pipeline/validate_data.py                   # defaults to STORE_BLR_002
-python3 pipeline/validate_data.py --store STORE_1
-python3 pipeline/validate_data.py --store STORE_2
+# Brigade Road store (STORE_BLR_002 / ST1008)
+pipeline/run.sh --video-dir /data/footage
 ```
 
 ### Ingesting organizer sample events
 
-If you received a sample_events.jsonl from the challenge organizer in a different format, convert it first:
+If you received a `sample_events.jsonl` from the challenge organiser in a different schema, normalise it first:
 
 ```bash
 python3 pipeline/normalize_sample.py /path/to/sample_events.jsonl data/events/canonical.jsonl
 python3 pipeline/ingest_events.py data/events/canonical.jsonl
 ```
 
-### Resetting the database
-
-If you see inflated queue depths or stale data from previous runs, reset the database:
+### Validating event schema and API (optional)
 
 ```bash
-rm data/store_intelligence.db
-docker compose restart app
+# Offline schema check — no API needed
+python3 pipeline/validate_schema.py data/events/store1 data/events/store2
+
+# Live API sanity check
+python3 pipeline/validate_data.py                   # defaults to STORE_BLR_002
+python3 pipeline/validate_data.py --store STORE_1
+python3 pipeline/validate_data.py --store STORE_2
 ```
 
-After restart, re-run the pipeline scripts to re-ingest events.
+### Resetting the database
+
+```bash
+rm data/store_intelligence.db && docker compose restart api
+```
+
+Re-run the pipeline scripts after restart to re-ingest events.
 
 ### Pipeline flags (all run scripts)
 
@@ -205,8 +214,9 @@ Events validated via: .venv/bin/python pipeline/validate_schema.py data/events/
 ## Running tests
 
 ```bash
-pip install -r app/requirements.txt pytest-asyncio httpx
-pytest tests/ -v --tb=short
+pip install -r app/requirements.txt
+pytest tests/ -v
+# Coverage threshold is 70% — enforced by pyproject.toml
 ```
 
 Run the challenge sanity checks against the live API:
